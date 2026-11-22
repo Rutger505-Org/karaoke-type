@@ -21,9 +21,9 @@ export default async function PlayPage({ params }: Props) {
   if (!song) notFound();
 
   const lyrics = await getSongLyrics(song);
-  void api.score.top.prefetch({ songSlug: song.slug });
+  await api.score.top.prefetch({ songSlug: song.slug });
 
-  const leaderboard = <Leaderboard songSlug={song.slug} />;
+  const leaderboard = <Leaderboard key="leaderboard" songSlug={song.slug} />;
 
   return (
     <HydrateClient>
