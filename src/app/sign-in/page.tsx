@@ -8,9 +8,24 @@ import { Label } from "@/components/ui/label";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import React, { useEffect, useState } from "react";
+import React, { use, useEffect, useState } from "react";
 
-export default function SignInPage() {
+/** Only same-origin paths, so the callback can't redirect off-site. */
+function safeCallbackUrl(value: string | string[] | undefined): string {
+  return typeof value === "string" &&
+    value.startsWith("/") &&
+    !value.startsWith("//") &&
+    !value.startsWith("/\\")
+    ? value
+    : "/";
+}
+
+export default function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const callbackUrl = safeCallbackUrl(use(searchParams).callbackUrl);
   const { data: session } = useSession();
   const router = useRouter();
 
@@ -24,7 +39,7 @@ export default function SignInPage() {
         email,
         password,
         rememberMe: true,
-        callbackURL: "/",
+        callbackURL: callbackUrl,
       });
       if (response?.error) {
         throw new Error(response.error.message ?? response.error.statusText);
@@ -36,7 +51,7 @@ export default function SignInPage() {
     mutationFn: async () => {
       const response = await signIn.magicLink({
         email: magicEmail,
-        callbackURL: "/",
+        callbackURL: callbackUrl,
       });
       if (response?.error) {
         throw new Error(response.error.message ?? response.error.statusText);
@@ -46,9 +61,9 @@ export default function SignInPage() {
 
   useEffect(() => {
     if (session) {
-      router.push("/");
+      router.push(callbackUrl);
     }
-  }, [router, session]);
+  }, [router, session, callbackUrl]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
