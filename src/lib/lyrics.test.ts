@@ -36,6 +36,14 @@ describe("parseLrc", () => {
     expect(parseLrc("[00:01.00] a", 250)[0]?.timeMs).toBe(1250);
   });
 
+  test("strips enhanced LRC word timestamps", () => {
+    expect(
+      parseLrc(
+        "[00:01.00] <00:01.00>Some <00:01.40>made <00:01.90>up <00:02.30>",
+      ),
+    ).toEqual([{ timeMs: 1000, text: "Some made up" }]);
+  });
+
   test("handles CRLF and timestamps without fraction", () => {
     expect(parseLrc("[00:03] x\r\n[00:04] y")).toEqual([
       { timeMs: 3000, text: "x" },

@@ -367,7 +367,10 @@ function ScoreSubmission({
   if (sessionPending) return null;
   if (!signedIn) {
     return (
-      <Link href="/sign-in" className="text-sm text-emerald-400 underline">
+      <Link
+        href={`/sign-in?callbackUrl=${encodeURIComponent(`/play/${song.slug}`)}`}
+        className="text-sm text-emerald-400 underline"
+      >
         Sign in to save your score
       </Link>
     );

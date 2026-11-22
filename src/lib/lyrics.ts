@@ -13,11 +13,14 @@ export type KaraokeLine = {
 
 const TIMESTAMP = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
 const LEADING_TIMESTAMPS = /^(?:\s*\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])+/;
+/** Enhanced LRC word timestamps: `<mm:ss.xx>` inside the line text. */
+const WORD_TIMESTAMPS = /<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>/g;
 
 /**
  * Parses LRC synced lyrics (`[mm:ss.xx] text`) into lines sorted by time.
  * Lines with several timestamps (`[00:10.00][00:30.00] text`) produce one
- * entry per timestamp. Metadata tags such as `[ar:...]` are ignored. Empty
+ * entry per timestamp. Enhanced LRC word timestamps (`<00:10.50>word`) are
+ * stripped. Metadata tags such as `[ar:...]` are ignored. Empty
  * lines are kept: they mark the end of the previous line.
  */
 export function parseLrc(lrc: string, offsetMs = 0): LrcLine[] {
@@ -27,7 +30,11 @@ export function parseLrc(lrc: string, offsetMs = 0): LrcLine[] {
     const prefix = LEADING_TIMESTAMPS.exec(rawLine);
     if (!prefix) continue;
 
-    const text = rawLine.slice(prefix[0].length).trim();
+    const text = rawLine
+      .slice(prefix[0].length)
+      .replace(WORD_TIMESTAMPS, "")
+      .replace(/\s+/g, " ")
+      .trim();
     for (const match of prefix[0].matchAll(TIMESTAMP)) {
       const minutes = Number(match[1]);
       const seconds = Number(match[2]);
