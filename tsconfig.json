@@ -28,7 +28,8 @@
       ]
     },
     "types": [
-      "bun-types"
+      "bun-types",
+      "youtube"
     ]
   },
   "include": [
