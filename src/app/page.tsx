@@ -1,4 +1,3 @@
-import { CreditFooter } from "@/app/_components/credit-footer";
 import { SignOutButton } from "@/app/_components/sign-out-button";
 import {
   Card,
@@ -6,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { isAdmin } from "@/server/admin";
 import { auth } from "@/server/auth";
 import { getSongIndex } from "@/server/catalog";
 import { headers } from "next/headers";
@@ -16,6 +16,7 @@ export default async function Home() {
     auth.api.getSession({ headers: await headers() }),
     getSongIndex(),
   ]);
+  const admin = session ? await isAdmin(session.user) : false;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-10 px-6 py-16">
@@ -33,6 +34,11 @@ export default async function Home() {
           {session ? (
             <>
               <span>{session.user.name || session.user.email}</span>
+              {admin && (
+                <Link href="/admin" className="hover:text-foreground underline">
+                  Admin
+                </Link>
+              )}
               <SignOutButton />
             </>
           ) : (
@@ -72,9 +78,13 @@ export default async function Home() {
             ))}
           </ul>
         )}
+        <p className="text-muted-foreground text-sm">
+          Missing a song?{" "}
+          <Link href="/request" className="hover:text-foreground underline">
+            Request it
+          </Link>
+        </p>
       </section>
-
-      <CreditFooter />
     </main>
   );
 }

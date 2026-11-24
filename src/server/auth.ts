@@ -1,4 +1,5 @@
 import { env } from "@/env";
+import { isAdminEmail, userExists } from "@/server/admin";
 import { db } from "@/server/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -24,9 +25,20 @@ export const auth = betterAuth({
   },
   plugins: [
     magicLink({
-      disableSignUp: true,
+      // Sign-up via magic link is only meant for whitelisted admins; the
+      // check happens below because disableSignUp can't be per email.
+      disableSignUp: false,
 
       sendMagicLink: async ({ email, url }) => {
+        if (!(await userExists(email)) && !(await isAdminEmail(email))) {
+          // Silently skip (no error) so the form doesn't reveal which
+          // addresses have an account.
+          console.info(
+            "[auth] magic link not sent: no account and not an admin email",
+          );
+          return;
+        }
+
         const result = await transporter.sendMail({
           to: email,
           from: `${env.AUTH_EMAIL_FROM} <${env.AUTH_EMAIL_USER}>`,
@@ -36,7 +48,10 @@ export const auth = betterAuth({
         });
 
         if (result.rejected.length || !result.messageId) {
-          console.error("Email send failed", result);
+          console.error("[auth] magic link email send failed", {
+            rejected: result.rejected.length,
+            messageId: result.messageId,
+          });
           throw new Error("Failed to send email");
         }
       },

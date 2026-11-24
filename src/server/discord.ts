@@ -1,25 +1,26 @@
-"use server";
+import "server-only";
 
 import { env } from "@/env";
 import axios from "axios";
 
 export async function sendDiscordMessage(message: string) {
-  "use server";
-
   if (!env.DISCORD_WEBHOOK_URL) {
-    console.warn(
-      "DISCORD_WEBHOOK_URL is not set. Not sending Discord message:",
-      message,
-    );
+    console.warn("[discord] DISCORD_WEBHOOK_URL is not set, message not sent");
     return;
   }
 
   try {
-    console.log("Discord message:", message);
     await axios.post(env.DISCORD_WEBHOOK_URL, {
       content: message,
+      // Messages can contain user input: never ping @everyone/roles/users.
+      allowed_mentions: { parse: [] },
     });
+    console.info("[discord] message sent");
   } catch (error) {
-    console.error("Error sending Discord message", error);
+    // Log only the status: the error object contains the webhook URL.
+    console.error("[discord] sending message failed", {
+      status: axios.isAxiosError(error) ? error.response?.status : undefined,
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 }

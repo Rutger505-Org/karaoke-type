@@ -115,6 +115,14 @@ resource "kubernetes_deployment" "app" {
             container_port = var.application_port
           }
 
+          # Public URL for Better Auth: TLS ends at the ingress, so the origin
+          # derived from the request is http:// and every auth POST fails with
+          # "Invalid origin".
+          env {
+            name  = "BETTER_AUTH_URL"
+            value = "https://${var.hostname}"
+          }
+
           env_from {
             config_map_ref {
               name = kubernetes_config_map.app.metadata[0].name
