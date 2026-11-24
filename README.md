@@ -1,6 +1,6 @@
-# Next template
+# KaraokeType
 
-Next.js template for my personal needs.
+Type along to song lyrics in sync with the music. Inspired by [memetrollsXD/karaoketype](https://github.com/memetrollsXD/karaoketype). Built from [nextjs-template](https://github.com/Rutger505-Org/nextjs-template).
 
 ## Getting started
 
