@@ -12,13 +12,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "song:compile": "uv run --project tools/songc songc compile",
-    "song:check": "uv run --project tools/songc songc check",
-    "song:nudge": "uv run --project tools/songc songc nudge",
-    "song:clip": "uv run --project tools/songc songc clip",
-    "song:publish": "uv run --project tools/songc songc publish",
-    "song:test": "uv run --project tools/songc pytest tools/songc"
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",

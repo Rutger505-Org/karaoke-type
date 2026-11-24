@@ -11,7 +11,7 @@ import {
 import { cache } from "react";
 import { type z } from "zod";
 
-/** Compiled songs (songc publish) on the CDN; see docs/songs.md. */
+/** Compiled songs on the CDN (see the schemas in @/lib/catalog). */
 const DEFAULT_BASE_URL = "https://cdn.rutgerpronk.com/karaoke/";
 
 /** Read lazily: with SKIP_ENV_VALIDATION (builds) env defaults aren't applied. */

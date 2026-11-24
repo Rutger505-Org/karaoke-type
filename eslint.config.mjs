@@ -6,7 +6,7 @@ import prettier from "eslint-config-prettier";
 
 export default tseslint.config(
   {
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "tools/**"],
+    ignores: [".next/**", "node_modules/**", "next-env.d.ts"],
   },
   ...nextCoreWebVitals,
   ...nextTypescript,

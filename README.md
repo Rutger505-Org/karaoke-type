@@ -6,7 +6,7 @@ Inspired by and made with permission of [memetrollsXD/karaoketype](https://githu
 
 ## How it works
 
-- **Songs** are compiled offline by songc (lyrics from [LRCLIB](https://lrclib.net), word-aligned to the audio) and published to the CDN; see [docs/songs.md](docs/songs.md). The app reads `index.json` and `songs/<slug>.json` server-side (revalidated every minute) from `SONGS_BASE_URL` (optional, defaults to `https://cdn.rutgerpronk.com/karaoke/`). No lyrics or audio are stored in this repository.
+- **Songs** are prepared offline in a separate private repository and published to the CDN as timed lyrics plus audio. The app reads `index.json` and `songs/<slug>.json` server-side (revalidated every minute) from `SONGS_BASE_URL` (optional, defaults to `https://cdn.rutgerpronk.com/karaoke/`). No lyrics or audio are stored in this repository.
 - **Playback** uses an HTML5 `<audio>` element on the self-hosted audio file. Its current time is the game clock, so the compiled timings match exactly.
 - **Scoring** lives in [src/lib/scoring.ts](src/lib/scoring.ts): 10 points per correct character, −5 per wrong one, +50 (+ up to 25 for finishing early) for a line typed perfectly before its window ends, and perfect lines in a row multiply by 1 + 0.1 × combo (max 2×).
 

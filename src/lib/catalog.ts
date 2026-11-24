@@ -1,7 +1,7 @@
 import { buildKaraokeLines, type KaraokeLine } from "@/lib/lyrics";
 import { z } from "zod";
 
-/** Schemas for the CDN song catalog, see docs/songs.md (schema 1). */
+/** Schemas for the CDN song catalog, schema 1 (produced by the private karaoke-type-songs repo). */
 
 const ms = z.number().int().nonnegative();
 const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);

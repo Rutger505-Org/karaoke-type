@@ -10,7 +10,7 @@ export const env = createEnv({
       .optional()
       .default("development"),
 
-    /** Song catalog (songc publish output), see docs/songs.md. */
+    /** Base URL of the CDN song catalog (index.json + songs/<slug>.json). */
     SONGS_BASE_URL: z
       .string()
       .url()
