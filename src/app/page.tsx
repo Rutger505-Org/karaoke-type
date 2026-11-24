@@ -1,4 +1,3 @@
-import { CreditFooter } from "@/app/_components/credit-footer";
 import { SignOutButton } from "@/app/_components/sign-out-button";
 import {
   Card,
@@ -86,8 +85,6 @@ export default async function Home() {
           </Link>
         </p>
       </section>
-
-      <CreditFooter />
     </main>
   );
 }

@@ -1,4 +1,3 @@
-import { CreditFooter } from "@/app/_components/credit-footer";
 import { Game } from "@/app/play/[slug]/_components/game";
 import { Leaderboard } from "@/app/play/[slug]/_components/leaderboard";
 import { Card, CardContent } from "@/components/ui/card";
@@ -60,8 +59,6 @@ export default async function PlayPage({ params }: Props) {
             {leaderboard}
           </div>
         )}
-
-        <CreditFooter />
       </main>
     </HydrateClient>
   );
