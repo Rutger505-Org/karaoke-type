@@ -58,6 +58,9 @@ Thumbs.db
 # Docs
 docs
 
+# Song pipeline (Python, not part of the app image)
+tools
+
 # Deployment
 Makefile
 deploy
