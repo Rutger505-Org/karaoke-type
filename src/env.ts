@@ -10,6 +10,13 @@ export const env = createEnv({
       .optional()
       .default("development"),
 
+    /** Song catalog (songc publish output), see docs/songs.md. */
+    SONGS_BASE_URL: z
+      .string()
+      .url()
+      .optional()
+      .default("https://cdn.rutgerpronk.com/karaoke/"),
+
     AUTH_SECRET: z.string(),
 
     AUTH_EMAIL_FROM: z.string(),

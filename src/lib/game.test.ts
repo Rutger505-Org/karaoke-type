@@ -9,8 +9,14 @@ import { describe, expect, test } from "bun:test";
 
 // Made-up lyric lines.
 const lines: KaraokeLine[] = [
-  { startMs: 1000, endMs: 3000, text: "Tiny robot" },
-  { startMs: 4000, endMs: 6000, text: "Dances" },
+  {
+    startMs: 1000,
+    endMs: 3000,
+    sungEndMs: 2500,
+    text: "Tiny robot",
+    words: [],
+  },
+  { startMs: 4000, endMs: 6000, sungEndMs: 5500, text: "Dances", words: [] },
 ];
 
 function run(...actions: Parameters<typeof gameReducer>[1][]): GameState {

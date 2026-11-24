@@ -1,9 +1,9 @@
 "use client";
 
-import { useYouTubePlayer } from "@/app/play/[slug]/_components/use-youtube-player";
 import { useSession } from "@/client/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { type Song } from "@/lib/catalog";
 import {
   createGame,
   currentLine,
@@ -11,11 +11,11 @@ import {
   isLineActive,
   type GameState,
 } from "@/lib/game";
-import { compareChars, type KaraokeLine } from "@/lib/lyrics";
+import { activeWordIndex, compareChars, type KaraokeWord } from "@/lib/lyrics";
 import { computeStats, type GameStats } from "@/lib/scoring";
-import { type Song } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
+import { Volume2, VolumeX } from "lucide-react";
 import Link from "next/link";
 import {
   useCallback,
@@ -23,65 +23,110 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 
-/** YT.PlayerState.ENDED; the YT global only exists once the API script loaded. */
-const PLAYER_STATE_ENDED = 0;
+type AudioStatus = "loading" | "ready" | "error";
+
+/**
+ * Tracks whether the <audio> element can play. Reads the element itself, so
+ * events fired before hydration aren't missed.
+ */
+function useAudioStatus(audioRef: React.RefObject<HTMLAudioElement | null>) {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const audio = audioRef.current;
+      if (!audio) return () => undefined;
+      const events = ["canplay", "loadeddata", "error", "emptied"] as const;
+      events.forEach((e) => audio.addEventListener(e, onChange));
+      return () =>
+        events.forEach((e) => audio.removeEventListener(e, onChange));
+    },
+    [audioRef],
+  );
+  return useSyncExternalStore<AudioStatus>(
+    subscribe,
+    () => {
+      const audio = audioRef.current;
+      if (!audio) return "loading";
+      if (audio.error) return "error";
+      return audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
+        ? "ready"
+        : "loading";
+    },
+    () => "loading",
+  );
+}
 
 export function Game({
   song,
-  lines,
   sidebar,
-}: Readonly<{ song: Song; lines: KaraokeLine[]; sidebar?: ReactNode }>) {
+}: Readonly<{ song: Song; sidebar?: ReactNode }>) {
+  const lines = song.lines;
   const [state, dispatch] = useReducer(gameReducer, lines, createGame);
   const inputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioStatus = useAudioStatus(audioRef);
+  const [starting, setStarting] = useState(false);
+  const [playError, setPlayError] = useState<string | null>(null);
+  const [volume, setVolume] = useState(0.8);
 
-  const handlePlayerState = useCallback((playerState: YT.PlayerState) => {
-    if (Number(playerState) === PLAYER_STATE_ENDED) dispatch({ type: "end" });
-  }, []);
-  const {
-    containerRef,
-    playerRef,
-    ready: playerReady,
-    error: playerError,
-  } = useYouTubePlayer(song.youtubeId, handlePlayerState);
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume;
+  }, [volume]);
 
-  // Game clock: the video's current time, polled every animation frame.
+  // Game clock: the audio's current time, polled every animation frame.
   useEffect(() => {
     if (state.status !== "playing") return;
     let frame = 0;
     const loop = () => {
-      const p = playerRef.current;
-      if (p) dispatch({ type: "tick", nowMs: p.getCurrentTime() * 1000 });
+      const audio = audioRef.current;
+      if (audio) dispatch({ type: "tick", nowMs: audio.currentTime * 1000 });
       frame = requestAnimationFrame(loop);
     };
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [state.status, playerRef]);
+  }, [state.status]);
 
-  // Keep the input focused while playing, also after clicking the video.
+  // Keep the input focused while playing.
   useEffect(() => {
-    if (state.status !== "playing") return;
-    inputRef.current?.focus();
-    const refocus = () => setTimeout(() => inputRef.current?.focus(), 0);
-    window.addEventListener("blur", refocus);
-    return () => window.removeEventListener("blur", refocus);
+    if (state.status === "playing") inputRef.current?.focus();
   }, [state.status, state.lineIndex]);
 
-  const start = () => {
-    const p = playerRef.current;
-    if (!p) return;
-    p.seekTo(0, true);
-    p.playVideo();
-    dispatch({ type: "start" });
-    inputRef.current?.focus();
+  const start = async () => {
+    const audio = audioRef.current;
+    if (!audio || starting) return;
+    setStarting(true);
+    setPlayError(null);
+    try {
+      audio.currentTime = 0;
+      await audio.play();
+      dispatch({ type: "start" });
+      inputRef.current?.focus();
+    } catch (error) {
+      console.error("Audio playback failed", error);
+      setPlayError(
+        error instanceof DOMException && error.name === "NotAllowedError"
+          ? "The browser blocked playback. Press start again."
+          : "Could not play the audio.",
+      );
+    } finally {
+      setStarting(false);
+    }
   };
 
   const stats = useMemo(() => computeStats(state.results), [state.results]);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <audio
+        ref={audioRef}
+        src={song.audioUrl}
+        preload="auto"
+        onEnded={() => dispatch({ type: "end" })}
+      />
       <div className="flex flex-col gap-4">
         <StatsBar stats={stats} />
         {state.status === "finished" ? (
@@ -98,20 +143,100 @@ export function Game({
             onInput={(value) => dispatch({ type: "input", value })}
             onEnter={() => dispatch({ type: "enter" })}
             onStart={start}
-            canStart={playerReady}
-            playerError={playerError}
+            startLabel={
+              audioStatus === "error"
+                ? "Audio unavailable"
+                : audioStatus === "loading" || starting
+                  ? "Loading audio…"
+                  : "Start"
+            }
+            canStart={audioStatus === "ready" && !starting}
+            playerError={
+              audioStatus === "error"
+                ? "Could not load the audio. Try again later."
+                : playError
+            }
           />
         )}
       </div>
 
       <aside className="flex flex-col gap-4">
-        <div className="overflow-hidden rounded-lg border bg-black">
-          <div ref={containerRef} className="aspect-video w-full" />
-        </div>
+        <PlayerCard
+          nowMs={state.status === "playing" ? state.nowMs : 0}
+          durationMs={song.durationMs}
+          volume={volume}
+          onVolume={setVolume}
+          onVolumeDone={() => {
+            if (state.status === "playing") inputRef.current?.focus();
+          }}
+        />
         {sidebar}
       </aside>
     </div>
   );
+}
+
+function PlayerCard({
+  nowMs,
+  durationMs,
+  volume,
+  onVolume,
+  onVolumeDone,
+}: Readonly<{
+  nowMs: number;
+  durationMs: number;
+  volume: number;
+  onVolume: (volume: number) => void;
+  onVolumeDone: () => void;
+}>) {
+  const muted = volume === 0;
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-3 p-4">
+        <div className="flex items-center gap-3 font-mono text-xs tabular-nums">
+          <span>{formatTime(nowMs)}</span>
+          <div className="bg-muted h-1 flex-1 overflow-hidden rounded-full">
+            <div
+              className="bg-foreground/60 h-full"
+              style={{ width: `${clamp01(nowMs / durationMs) * 100}%` }}
+            />
+          </div>
+          <span className="text-muted-foreground">
+            {formatTime(durationMs)}
+          </span>
+        </div>
+        <label className="text-muted-foreground flex items-center gap-3">
+          <button
+            type="button"
+            aria-label={muted ? "Unmute" : "Mute"}
+            onClick={() => {
+              onVolume(muted ? 0.8 : 0);
+              onVolumeDone();
+            }}
+            className="hover:text-foreground"
+          >
+            {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            onChange={(e) => onVolume(Number(e.target.value))}
+            onPointerUp={onVolumeDone}
+            aria-label="Volume"
+            className="flex-1 accent-emerald-400"
+          />
+        </label>
+      </CardContent>
+    </Card>
+  );
+}
+
+function formatTime(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
 function StatsBar({ stats }: Readonly<{ stats: GameStats }>) {
@@ -143,6 +268,7 @@ function TypingArea({
   onInput,
   onEnter,
   onStart,
+  startLabel,
   canStart,
   playerError,
 }: Readonly<{
@@ -151,6 +277,7 @@ function TypingArea({
   onInput: (value: string) => void;
   onEnter: () => void;
   onStart: () => void;
+  startLabel: string;
   canStart: boolean;
   playerError: string | null;
 }>) {
@@ -160,6 +287,7 @@ function TypingArea({
   const playing = state.status === "playing";
   const waiting = playing && !!line && state.nowMs < line.startMs;
 
+  const word = line?.words[line ? activeWordIndex(line, state.nowMs) : -1];
   const progress = line
     ? clamp01((state.nowMs - line.startMs) / (line.endMs - line.startMs))
     : 0;
@@ -193,6 +321,7 @@ function TypingArea({
               typed={state.typed}
               dimmed={waiting}
               showCaret={active}
+              word={word}
             />
           ) : (
             <p className="text-muted-foreground text-2xl">
@@ -235,7 +364,7 @@ function TypingArea({
         {!playing && (
           <div className="bg-background/80 absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl backdrop-blur-sm">
             <Button size="lg" onClick={onStart} disabled={!canStart}>
-              {canStart ? "Start" : "Loading player…"}
+              {startLabel}
             </Button>
             {playerError && (
               <p className="text-sm text-red-400">{playerError}</p>
@@ -256,11 +385,14 @@ function LineText({
   typed,
   dimmed,
   showCaret,
+  word,
 }: Readonly<{
   text: string;
   typed: string;
   dimmed: boolean;
   showCaret: boolean;
+  /** Word currently being sung, underlined. */
+  word?: KaraokeWord;
 }>) {
   const states = compareChars(text, typed);
   return (
@@ -279,6 +411,10 @@ function LineText({
             states[i] === "wrong" && "rounded-sm bg-red-500/20 text-red-400",
             states[i] === "pending" && "text-muted-foreground",
             showCaret && i === typed.length && "border-l-2 border-amber-400",
+            word &&
+              i >= word.start &&
+              i < word.end &&
+              "underline decoration-sky-400 decoration-2 underline-offset-8",
           )}
         >
           {char}
