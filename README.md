@@ -1,6 +1,14 @@
 # KaraokeType
 
-Type along to song lyrics in sync with the music. Inspired by [memetrollsXD/karaoketype](https://github.com/memetrollsXD/karaoketype). Built from [nextjs-template](https://github.com/Rutger505-Org/nextjs-template).
+A karaoke typing game: a song plays and its synced lyrics appear line by line. Type each line while it's being sung. Accuracy scores points, finishing a line perfectly before it ends earns a small bonus, and perfect lines in a row build a combo multiplier. Signed-in players get their best score on the per-song leaderboard.
+
+Inspired by and made with permission of [memetrollsXD/karaoketype](https://github.com/memetrollsXD/karaoketype).
+
+## How it works
+
+- **Songs** are compiled offline by songc (lyrics from [LRCLIB](https://lrclib.net), word-aligned to the audio) and published to the CDN; see [docs/songs.md](docs/songs.md). The app reads `index.json` and `songs/<slug>.json` server-side (revalidated every minute) from `SONGS_BASE_URL` (optional, defaults to `https://cdn.rutgerpronk.com/karaoke/`). No lyrics or audio are stored in this repository.
+- **Playback** uses an HTML5 `<audio>` element on the self-hosted audio file. Its current time is the game clock, so the compiled timings match exactly.
+- **Scoring** lives in [src/lib/scoring.ts](src/lib/scoring.ts): 10 points per correct character, −5 per wrong one, +50 (+ up to 25 for finishing early) for a line typed perfectly before its window ends, and perfect lines in a row multiply by 1 + 0.1 × combo (max 2×).
 
 ## Getting started
 
@@ -24,13 +32,19 @@ Then start the development server:
 bun dev
 ```
 
-### Using template
+Run the unit tests:
+
+```bash
+bun test
+```
+
+### Deployment variables
 
 #### Variables
 
 - `APPLICATION_NAME` - Used as an identifier for multiple actions such as the Kubernetes deployment name and Terraform workspace.
 - `BASE_DOMAIN` - Domain where to host the application. `main` is deployed to this domain; pull requests to `pr-<number>.<BASE_DOMAIN>`.
-- `DEPLOYMENT_AUTH_EMAIL_FROM` - Display name shown as the sender of the magic link emails (e.g. `Next Template`). The actual sender address is taken from `AUTH_EMAIL_USER`; the `From` header is composed as `AUTH_EMAIL_FROM <AUTH_EMAIL_USER>`.
+- `DEPLOYMENT_AUTH_EMAIL_FROM` - Display name shown as the sender of the magic link emails (e.g. `KaraokeType`). The actual sender address is taken from `AUTH_EMAIL_USER`; the `From` header is composed as `AUTH_EMAIL_FROM <AUTH_EMAIL_USER>`.
 
 The following variables are configured at the organisation level and are inherited automatically — no action needed per repository.
 

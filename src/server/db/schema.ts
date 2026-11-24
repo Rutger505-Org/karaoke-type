@@ -1,39 +1,11 @@
 import { sql } from "drizzle-orm";
 import {
   index,
-  int,
   integer,
+  real,
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
-
-/**
- * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
- * database instance for multiple projects.
- *
- * @see https://orm.drizzle.team/docs/goodies#multi-project-schema
- */
-
-export const post = sqliteTable(
-  "post",
-  {
-    id: int("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
-    name: text("name", { length: 256 }).notNull(),
-    createdById: text("created_by", { length: 255 })
-      .notNull()
-      .references(() => user.id),
-    createdAt: int("created_at", { mode: "timestamp" })
-      .default(sql`(unixepoch())`)
-      .notNull(),
-    updatedAt: int("updatedAt", { mode: "timestamp" }).$onUpdate(
-      () => new Date(),
-    ),
-  },
-  (example) => ({
-    createdByIdIdx: index("created_by_idx").on(example.createdById),
-    nameIndex: index("name_idx").on(example.name),
-  }),
-);
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -108,3 +80,25 @@ export const verification = sqliteTable("verification", {
     .$onUpdate(() => new Date())
     .notNull(),
 });
+
+export const score = sqliteTable(
+  "score",
+  {
+    id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    songSlug: text("song_slug").notNull(),
+    score: integer("score").notNull(),
+    /** Accuracy as a percentage, 0-100. */
+    accuracy: real("accuracy").notNull(),
+    wpm: real("wpm").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .default(sql`(unixepoch())`)
+      .notNull(),
+  },
+  (table) => [
+    index("score_song_slug_score_idx").on(table.songSlug, table.score),
+    index("score_user_id_idx").on(table.userId),
+  ],
+);

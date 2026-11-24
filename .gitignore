@@ -154,3 +154,7 @@ yarn-error.log*
 
 # idea files
 .idea
+# songc (Python song pipeline)
+tools/songc/.venv/
+__pycache__/
+.pytest_cache/
