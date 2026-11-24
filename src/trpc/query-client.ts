@@ -1,4 +1,4 @@
-import { sendDiscordMessage } from "@/server/discord";
+import { reportClientError } from "@/server/report-client-error";
 import {
   defaultShouldDehydrateQuery,
   MutationCache,
@@ -11,19 +11,18 @@ export const createQueryClient = () =>
   new QueryClient({
     queryCache: new QueryCache({
       onError: (error, query) => {
-        void sendDiscordMessage(
-          "Tanstack Query - Query Error:\n" +
-            `Query Key: ${JSON.stringify(query.queryKey)}\n` +
-            `Error message: ${error.message}`,
+        void reportClientError(
+          "query",
+          `Key: ${JSON.stringify(query.queryKey)}\nError: ${error.message}`,
         );
       },
     }),
     mutationCache: new MutationCache({
-      onError: (error, variables, context, query) => {
-        void sendDiscordMessage(
-          "Tanstack Query - Mutation Error:\n" +
-            `Mutation metadata: ${JSON.stringify({ variables, context, query })}\n` +
-            `Error message: ${error.message}`,
+      onError: (error, variables, _context, mutation) => {
+        void reportClientError(
+          "mutation",
+          `Key: ${JSON.stringify(mutation.options.mutationKey)}\n` +
+            `Variables: ${JSON.stringify(variables)}\nError: ${error.message}`,
         );
       },
     }),
