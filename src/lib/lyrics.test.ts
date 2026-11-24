@@ -1,56 +1,39 @@
 import {
+  activeWordIndex,
   buildKaraokeLines,
   compareChars,
   normalizeText,
-  parseLrc,
+  type SongLine,
 } from "@/lib/lyrics";
 import { describe, expect, test } from "bun:test";
 
 // Made-up lyrics only: never put real song lyrics in this repo.
-const LRC = [
-  "[ar:Test Artist]",
-  "[ti:Test Song]",
-  "[00:01.50] Hello little teapot",
-  "[00:04.00]",
-  "[00:06.25][00:20.00] Biscuits on the windowsill",
-  "[00:09.5] Short fraction",
-  "[01:02.123] Three digit fraction",
-  "not a lyric line",
-].join("\n");
+function line(startMs: number, words: [string, number, number][]): SongLine {
+  return {
+    startMs,
+    endMs: words.at(-1)![2],
+    text: words.map(([text]) => text).join(" "),
+    words: words.map(([text, s, e]) => ({ text, startMs: s, endMs: e })),
+  };
+}
 
-describe("parseLrc", () => {
-  test("parses timestamps, sorts, keeps empty lines and duplicates", () => {
-    expect(parseLrc(LRC)).toEqual([
-      { timeMs: 1500, text: "Hello little teapot" },
-      { timeMs: 4000, text: "" },
-      { timeMs: 6250, text: "Biscuits on the windowsill" },
-      { timeMs: 9500, text: "Short fraction" },
-      { timeMs: 20000, text: "Biscuits on the windowsill" },
-      { timeMs: 62123, text: "Three digit fraction" },
-    ]);
-  });
-
-  test("applies offset and clamps at zero", () => {
-    const lines = parseLrc("[00:00.50] a\n[00:02.00] b", -1000);
-    expect(lines.map((l) => l.timeMs)).toEqual([0, 1000]);
-    expect(parseLrc("[00:01.00] a", 250)[0]?.timeMs).toBe(1250);
-  });
-
-  test("strips enhanced LRC word timestamps", () => {
-    expect(
-      parseLrc(
-        "[00:01.00] <00:01.00>Some <00:01.40>made <00:01.90>up <00:02.30>",
-      ),
-    ).toEqual([{ timeMs: 1000, text: "Some made up" }]);
-  });
-
-  test("handles CRLF and timestamps without fraction", () => {
-    expect(parseLrc("[00:03] x\r\n[00:04] y")).toEqual([
-      { timeMs: 3000, text: "x" },
-      { timeMs: 4000, text: "y" },
-    ]);
-  });
-});
+const SONG: SongLine[] = [
+  line(1500, [
+    ["Hello", 1500, 2000],
+    ["little", 2000, 2500],
+    ["teapot", 2500, 3000],
+  ]),
+  line(3200, [
+    ["Biscuits", 3200, 4000],
+    ["on", 4000, 4200],
+    ["the", 4200, 4400],
+    ["windowsill", 4400, 5000],
+  ]),
+  line(20000, [
+    ["Last", 20000, 21000],
+    ["one", 21000, 22000],
+  ]),
+];
 
 describe("normalizeText", () => {
   test("straightens quotes, dashes, ellipsis and whitespace", () => {
@@ -62,28 +45,62 @@ describe("normalizeText", () => {
 });
 
 describe("buildKaraokeLines", () => {
-  test("empty lines end the previous line and are not targets", () => {
-    const lines = buildKaraokeLines(parseLrc(LRC), { songEndMs: 65000 });
-    expect(lines[0]).toEqual({
-      startMs: 1500,
-      endMs: 4000,
-      text: "Hello little teapot",
+  test("window runs to the next line, capped by grace after the last word", () => {
+    const lines = buildKaraokeLines(SONG, { songEndMs: 60000 });
+    expect(lines.map((l) => [l.startMs, l.endMs, l.sungEndMs])).toEqual([
+      [1500, 3200, 3000],
+      [3200, 9000, 5000],
+      [20000, 26000, 22000],
+    ]);
+  });
+
+  test("last line never runs past the song end", () => {
+    const lines = buildKaraokeLines(SONG, { songEndMs: 23000 });
+    expect(lines.at(-1)?.endMs).toBe(23000);
+  });
+
+  test("offset shifts lines and words", () => {
+    const [first] = buildKaraokeLines(SONG, { offsetMs: 250 });
+    expect(first?.startMs).toBe(1750);
+    expect(first?.sungEndMs).toBe(3250);
+    expect(first?.words[1]).toEqual({
+      start: 6,
+      end: 12,
+      startMs: 2250,
+      endMs: 2750,
     });
-    expect(lines.map((l) => l.text)).not.toContain("");
-    expect(lines).toHaveLength(5);
   });
 
-  test("last line ends at song end, capped", () => {
-    const lrc = parseLrc("[00:10.00] last");
-    expect(buildKaraokeLines(lrc, { songEndMs: 12000 })[0]?.endMs).toBe(12000);
-    expect(buildKaraokeLines(lrc, { maxLastLineMs: 3000 })[0]?.endMs).toBe(
-      13000,
-    );
+  test("sorts, normalizes text and drops empty lines", () => {
+    const lines = buildKaraokeLines([
+      line(5000, [["B\u2019s", 5000, 6000]]),
+      { startMs: 3000, endMs: 4000, text: "  ", words: [] },
+      line(1000, [["A", 1000, 2000]]),
+    ]);
+    expect(lines.map((l) => l.text)).toEqual(["A", "B's"]);
   });
 
-  test("drops zero-length windows", () => {
-    const lrc = parseLrc("[00:01.00] a\n[00:01.00] b\n[00:02.00] c");
-    expect(buildKaraokeLines(lrc).map((l) => l.text)).toEqual(["b", "c"]);
+  test("skips words not found in the line text", () => {
+    const [only] = buildKaraokeLines([
+      {
+        ...line(0, [
+          ["foo", 0, 100],
+          ["bar", 100, 200],
+        ]),
+        text: "foo baz",
+      },
+    ]);
+    expect(only?.words.map((w) => [w.start, w.end])).toEqual([[0, 3]]);
+  });
+});
+
+describe("activeWordIndex", () => {
+  const [first] = buildKaraokeLines(SONG);
+  test("tracks the last started word while sung", () => {
+    expect(activeWordIndex(first, 1000)).toBe(-1);
+    expect(activeWordIndex(first, 1500)).toBe(0);
+    expect(activeWordIndex(first, 2600)).toBe(2);
+    expect(activeWordIndex(first, 3000)).toBe(-1);
   });
 });
 

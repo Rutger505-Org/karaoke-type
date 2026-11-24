@@ -1,9 +1,9 @@
-import { getSong } from "@/lib/songs";
 import {
   createTRPCRouter,
   protectedProcedure,
   publicProcedure,
 } from "@/server/api/trpc";
+import { isPublishedSong } from "@/server/catalog";
 import { score, user } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { asc, desc, eq, sql } from "drizzle-orm";
@@ -22,7 +22,14 @@ export const scoreRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      if (!getSong(input.songSlug)) {
+      const published = await isPublishedSong(input.songSlug);
+      if (published === null) {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Song catalog unavailable, try again later",
+        });
+      }
+      if (!published) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown song" });
       }
 

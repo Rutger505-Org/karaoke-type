@@ -1,54 +1,31 @@
-export type LrcLine = {
-  timeMs: number;
-  /** Raw line text; empty for instrumental gaps. */
-  text: string;
+/** A sung word inside a line: character range in `text` + song times. */
+export type KaraokeWord = {
+  /** Index of the first character in the line text. */
+  start: number;
+  /** Index after the last character. */
+  end: number;
+  startMs: number;
+  endMs: number;
 };
 
 /** A line the player has to type during [startMs, endMs). */
 export type KaraokeLine = {
   startMs: number;
+  /** End of the typing window; at or after the end of the singing. */
   endMs: number;
+  /** When the last word stops being sung. */
+  sungEndMs: number;
   text: string;
+  words: KaraokeWord[];
 };
 
-const TIMESTAMP = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
-const LEADING_TIMESTAMPS = /^(?:\s*\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])+/;
-/** Enhanced LRC word timestamps: `<mm:ss.xx>` inside the line text. */
-const WORD_TIMESTAMPS = /<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>/g;
-
-/**
- * Parses LRC synced lyrics (`[mm:ss.xx] text`) into lines sorted by time.
- * Lines with several timestamps (`[00:10.00][00:30.00] text`) produce one
- * entry per timestamp. Enhanced LRC word timestamps (`<00:10.50>word`) are
- * stripped. Metadata tags such as `[ar:...]` are ignored. Empty
- * lines are kept: they mark the end of the previous line.
- */
-export function parseLrc(lrc: string, offsetMs = 0): LrcLine[] {
-  const lines: LrcLine[] = [];
-
-  for (const rawLine of lrc.split(/\r?\n/)) {
-    const prefix = LEADING_TIMESTAMPS.exec(rawLine);
-    if (!prefix) continue;
-
-    const text = rawLine
-      .slice(prefix[0].length)
-      .replace(WORD_TIMESTAMPS, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    for (const match of prefix[0].matchAll(TIMESTAMP)) {
-      const minutes = Number(match[1]);
-      const seconds = Number(match[2]);
-      const fraction = match[3] ?? "0";
-      // ".5" = 500 ms, ".05" = 50 ms, ".005" = 5 ms
-      const fractionMs = Number(fraction.padEnd(3, "0"));
-      const timeMs = (minutes * 60 + seconds) * 1000 + fractionMs + offsetMs;
-      lines.push({ timeMs: Math.max(0, timeMs), text });
-    }
-  }
-
-  // Array.prototype.sort is stable, so equal timestamps keep file order.
-  return lines.sort((a, b) => a.timeMs - b.timeMs);
-}
+/** Compiled song.json line (times relative to the audio, before offsetMs). */
+export type SongLine = {
+  startMs: number;
+  endMs: number;
+  text: string;
+  words: { text: string; startMs: number; endMs: number }[];
+};
 
 /** Normalizes lyric text into something typeable on a regular keyboard. */
 export function normalizeText(text: string): string {
@@ -71,31 +48,78 @@ export function normalizeChars(text: string): string {
 }
 
 /**
- * Turns parsed LRC lines into typing targets. Each line lasts until the next
- * timestamped line (including empty ones). The last line lasts until the
- * song ends, capped at `maxLastLineMs`.
+ * Turns compiled song.json lines into typing targets. `offsetMs` is added to
+ * every line and word time. A line's typing window runs from its first word
+ * until the next line starts, but at most `graceMs` past its last sung word
+ * (and never past the song end).
  */
 export function buildKaraokeLines(
-  lines: LrcLine[],
-  options: { songEndMs?: number; maxLastLineMs?: number } = {},
+  lines: SongLine[],
+  options: { offsetMs?: number; songEndMs?: number; graceMs?: number } = {},
 ): KaraokeLine[] {
-  const { songEndMs = Infinity, maxLastLineMs = 8000 } = options;
+  const { offsetMs = 0, songEndMs = Infinity, graceMs = 4000 } = options;
+  const sorted = lines
+    .map((line) => ({ line, text: normalizeText(line.text) }))
+    .filter(({ text }) => text)
+    .sort((a, b) => a.line.startMs - b.line.startMs);
   const result: KaraokeLine[] = [];
 
-  lines.forEach((line, index) => {
-    const text = normalizeText(line.text);
-    if (!text) return;
+  sorted.forEach(({ line, text }, index) => {
+    const startMs = Math.max(0, line.startMs + offsetMs);
+    const sungEndMs = line.endMs + offsetMs;
+    const next = sorted[index + 1];
+    const limit = next ? next.line.startMs + offsetMs : songEndMs;
+    const endMs = Math.min(limit, sungEndMs + graceMs);
+    if (endMs <= startMs) return;
 
-    const next = lines[index + 1];
-    const endMs = next
-      ? next.timeMs
-      : Math.min(songEndMs, line.timeMs + maxLastLineMs);
-    if (endMs <= line.timeMs) return;
-
-    result.push({ startMs: line.timeMs, endMs, text });
+    result.push({
+      startMs,
+      endMs,
+      sungEndMs: Math.min(sungEndMs, endMs),
+      text,
+      words: locateWords(text, line.words, offsetMs),
+    });
   });
 
   return result;
+}
+
+/**
+ * Finds each word in the normalized line text (in order, case-insensitive).
+ * Words that can't be found are skipped, so highlighting degrades instead of
+ * pointing at the wrong characters.
+ */
+function locateWords(
+  text: string,
+  words: SongLine["words"],
+  offsetMs: number,
+): KaraokeWord[] {
+  const haystack = text.toLowerCase();
+  const result: KaraokeWord[] = [];
+  let cursor = 0;
+  for (const word of words) {
+    const needle = normalizeText(word.text).toLowerCase();
+    if (!needle) continue;
+    const start = haystack.indexOf(needle, cursor);
+    if (start === -1) continue;
+    cursor = start + needle.length;
+    result.push({
+      start,
+      end: cursor,
+      startMs: word.startMs + offsetMs,
+      endMs: word.endMs + offsetMs,
+    });
+  }
+  return result;
+}
+
+/** Index into `line.words` of the word being sung at `nowMs`, or -1. */
+export function activeWordIndex(line: KaraokeLine, nowMs: number): number {
+  if (nowMs < line.startMs || nowMs >= line.sungEndMs) return -1;
+  for (let i = line.words.length - 1; i >= 0; i--) {
+    if (line.words[i].startMs <= nowMs) return i;
+  }
+  return -1;
 }
 
 export type CharState = "correct" | "wrong" | "pending";

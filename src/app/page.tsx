@@ -1,3 +1,4 @@
+import { CreditFooter } from "@/app/_components/credit-footer";
 import { SignOutButton } from "@/app/_components/sign-out-button";
 import {
   Card,
@@ -5,15 +6,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { songs } from "@/lib/songs";
 import { auth } from "@/server/auth";
+import { getSongIndex } from "@/server/catalog";
 import { headers } from "next/headers";
 import Link from "next/link";
 
 export default async function Home() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const [session, index] = await Promise.all([
+    auth.api.getSession({ headers: await headers() }),
+    getSongIndex(),
+  ]);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-10 px-6 py-16">
@@ -45,21 +47,34 @@ export default async function Home() {
         <h2 className="text-muted-foreground text-sm tracking-wider uppercase">
           Songs
         </h2>
-        <ul className="grid gap-4 sm:grid-cols-2">
-          {songs.map((song) => (
-            <li key={song.slug}>
-              <Link href={`/play/${song.slug}`} className="group block">
-                <Card className="group-hover:border-foreground/40 transition-colors">
-                  <CardHeader>
-                    <CardTitle>{song.title}</CardTitle>
-                    <CardDescription>{song.artist}</CardDescription>
-                  </CardHeader>
-                </Card>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        {!index.ok ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Songs unavailable</CardTitle>
+              <CardDescription>{index.error} Try again later.</CardDescription>
+            </CardHeader>
+          </Card>
+        ) : index.songs.length === 0 ? (
+          <p className="text-muted-foreground">No songs published yet.</p>
+        ) : (
+          <ul className="grid gap-4 sm:grid-cols-2">
+            {index.songs.map((song) => (
+              <li key={song.slug}>
+                <Link href={`/play/${song.slug}`} className="group block">
+                  <Card className="group-hover:border-foreground/40 transition-colors">
+                    <CardHeader>
+                      <CardTitle>{song.title}</CardTitle>
+                      <CardDescription>{song.artist}</CardDescription>
+                    </CardHeader>
+                  </Card>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
+
+      <CreditFooter />
     </main>
   );
 }
