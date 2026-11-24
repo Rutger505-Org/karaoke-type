@@ -11,6 +11,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
+import { isAdmin } from "@/server/admin";
 import { auth } from "@/server/auth";
 import { db } from "@/server/db";
 
@@ -133,3 +134,16 @@ export const protectedProcedure = t.procedure
       },
     });
   });
+
+/**
+ * Admin procedure: signed in with a verified, whitelisted email (`admin_email`).
+ */
+export const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (!(await isAdmin(ctx.session.user))) {
+    console.warn("[admin] forbidden admin call", {
+      userId: ctx.session.user.id,
+    });
+    throw new TRPCError({ code: "FORBIDDEN" });
+  }
+  return next();
+});
