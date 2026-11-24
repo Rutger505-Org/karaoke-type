@@ -44,6 +44,11 @@
 - `audio.url` absent in the data repo until first publish. Word `score` 0 = not aligned (fallback/interpolated).
 - Changing the schema = bump `schema` and update the app.
 
+**App**
+- `src/server/catalog.ts` fetches `index.json` + `songs/<slug>.json` server-side (`revalidate: 60`, the CDN sends no CORS headers), validates with the zod schemas in `src/lib/catalog.ts` (rejects `schema != 1`) and applies `offsetMs`. Base URL: `SONGS_BASE_URL` (optional, default `https://cdn.rutgerpronk.com/karaoke/`).
+- Only slugs in `index.json` are playable; score submission checks the index too.
+- Typing window of a line: first word start → next line start, at most 4 s past the last word end. Clock = `<audio>.currentTime` on `audio.url`; the sung word is underlined.
+
 **Commands** (repo root; `bun run song:<cmd> ...` works too)
 - `uv run --project tools/songc songc compile <slug> --youtube <url> --artist A --title T [--lrclib-artist X] [--lrclib-track Y] [--lrclib-id N] [--force] [--reencode]`: recompile reuses cached audio/stem and the remembered YouTube URL; keeps `locked` lines (matched by text + occurrence) and `offsetMs` unless `--force`.
 - `songc check <slug> [--all]`: summary + flagged lines: `idx start end lrclib delta conf origin lock voc flags | text` (times effective = incl. offsetMs; `lrclib` = offset-corrected LRCLIB start; `voc` = fraction of the line with vocal energy). Flags: `fallback`, `lowconf` (<0.6), `overlap`, `gap>10s`, `short` (<1.2 s), `delta` (>700 ms vs LRCLIB), `silent` (voc<0.3), `word<40ms`, `word>3s`.

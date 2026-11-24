@@ -6,9 +6,8 @@ Inspired by and made with permission of [memetrollsXD/karaoketype](https://githu
 
 ## How it works
 
-- **Lyrics** come from [LRCLIB](https://lrclib.net) at runtime (server-side, cached for a day). No lyrics are stored in this repository.
-- **Playback** uses the official [YouTube IFrame Player API](https://developers.google.com/youtube/iframe_api_reference) embed. The video's current time is the game clock.
-- **Songs** are listed in [src/lib/songs.ts](src/lib/songs.ts): slug, YouTube id, LRCLIB lookup parameters and an optional `offsetMs` to line the lyrics up with the video.
+- **Songs** are compiled offline by songc (lyrics from [LRCLIB](https://lrclib.net), word-aligned to the audio) and published to the CDN; see [docs/songs.md](docs/songs.md). The app reads `index.json` and `songs/<slug>.json` server-side (revalidated every minute) from `SONGS_BASE_URL` (optional, defaults to `https://cdn.rutgerpronk.com/karaoke/`). No lyrics or audio are stored in this repository.
+- **Playback** uses an HTML5 `<audio>` element on the self-hosted audio file. Its current time is the game clock, so the compiled timings match exactly.
 - **Scoring** lives in [src/lib/scoring.ts](src/lib/scoring.ts): 10 points per correct character, −5 per wrong one, +50 (+ up to 25 for finishing early) for a line typed perfectly before its window ends, and perfect lines in a row multiply by 1 + 0.1 × combo (max 2×).
 
 ## Getting started
