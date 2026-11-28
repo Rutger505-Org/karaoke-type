@@ -1,6 +1,7 @@
 import {
   computeStats,
   EARLY_BONUS_MAX,
+  MISTAKE_PENALTY,
   PERFECT_BONUS,
   scoreLine,
   type LineAttempt,
@@ -30,11 +31,25 @@ describe("scoreLine", () => {
   });
 
   test("partial line: correct × 10 − wrong × 5", () => {
-    const r = scoreLine({ ...base, typed: "purple sxcks" }, 0);
+    const r = scoreLine({ ...base, typed: "Purple sxcks" }, 0);
     expect(r.correctChars).toBe(11);
     expect(r.wrongChars).toBe(1);
     expect(r.points).toBe(105);
     expect(r.perfect).toBe(false);
+  });
+
+  test("every mistake costs, also fixed ones", () => {
+    const r = scoreLine(
+      { ...base, typed: "Purple socks", mistakes: 3, completedAtMs: 3999 },
+      0,
+    );
+    expect(r.mistakes).toBe(3);
+    expect(r.basePoints).toBe(120 - 3 * MISTAKE_PENALTY);
+    expect(r.perfect).toBe(true);
+  });
+
+  test("a wrong char left in the line counts as a mistake", () => {
+    expect(scoreLine({ ...base, typed: "Pux" }, 0).mistakes).toBe(1);
   });
 
   test("penalty never goes below zero", () => {
@@ -43,7 +58,7 @@ describe("scoreLine", () => {
 
   test("perfect line gets bonus, earlier finish slightly more", () => {
     const late = scoreLine(
-      { ...base, typed: "purple socks", completedAtMs: 3999 },
+      { ...base, typed: "Purple socks", completedAtMs: 3999 },
       0,
     );
     const early = scoreLine(
@@ -59,9 +74,15 @@ describe("scoreLine", () => {
     expect(early.activeMs).toBe(1000);
   });
 
+  test("wrong case is not correct", () => {
+    const r = scoreLine({ ...base, typed: "purple socks" }, 0);
+    expect(r.correctChars).toBe(11);
+    expect(r.wrongChars).toBe(1);
+  });
+
   test("not perfect when completed after window", () => {
     const r = scoreLine(
-      { ...base, typed: "purple socks", completedAtMs: 4000 },
+      { ...base, typed: "Purple socks", completedAtMs: 4000 },
       0,
     );
     expect(r.perfect).toBe(false);
@@ -69,7 +90,7 @@ describe("scoreLine", () => {
   });
 
   test("combo multiplier grows and caps at 2×", () => {
-    const attempt = { ...base, typed: "purple socks", completedAtMs: 3999 };
+    const attempt = { ...base, typed: "Purple socks", completedAtMs: 3999 };
     expect(scoreLine(attempt, 0).multiplier).toBe(1);
     expect(scoreLine(attempt, 3).multiplier).toBeCloseTo(1.3);
     expect(scoreLine(attempt, 3).combo).toBe(4);
@@ -85,10 +106,10 @@ describe("computeStats", () => {
 
   test("aggregates", () => {
     const perfect = scoreLine(
-      { ...base, typed: "purple socks", completedAtMs: 3000 },
+      { ...base, typed: "Purple socks", completedAtMs: 3000 },
       0,
     );
-    const half = scoreLine({ ...base, typed: "purple" }, perfect.combo);
+    const half = scoreLine({ ...base, typed: "Purple" }, perfect.combo);
     const stats = computeStats([perfect, half]);
     expect(stats.score).toBe(perfect.points + half.points);
     // 18 correct of 24 lyric chars
@@ -98,5 +119,16 @@ describe("computeStats", () => {
     expect(stats.combo).toBe(0);
     expect(stats.maxCombo).toBe(1);
     expect(stats.perfectLines).toBe(1);
+  });
+
+  test("fixed mistakes lower accuracy", () => {
+    const clean = scoreLine({ ...base, typed: "Purple socks" }, 0);
+    const fixed = scoreLine({ ...base, typed: "Purple socks", mistakes: 3 }, 0);
+    const leftIn = scoreLine({ ...base, typed: "Purple sockx" }, 0);
+    expect(computeStats([clean]).accuracy).toBe(100);
+    // 12 correct of 12 chars + 3 fixed mistakes
+    expect(computeStats([fixed]).accuracy).toBe(80);
+    // the wrong char left in is not counted twice
+    expect(computeStats([leftIn]).accuracy).toBe(91.7);
   });
 });

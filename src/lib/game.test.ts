@@ -2,6 +2,8 @@ import {
   createGame,
   gameReducer,
   isLineActive,
+  SKIP_LEAD_IN_MS,
+  skipTargetMs,
   type GameState,
 } from "@/lib/game";
 import { type KaraokeLine } from "@/lib/lyrics";
@@ -39,17 +41,69 @@ describe("gameReducer", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1000 },
-      { type: "input", value: "tiny robot and more" },
+      { type: "input", value: "Tiny robot and more" },
     );
-    expect(s.typed).toBe("tiny robot");
+    expect(s.typed).toBe("Tiny robot");
     expect(s.completedAtMs).toBe(1000);
+  });
+
+  test("stops at the first typo; backspace keeps working", () => {
+    const typo = run(
+      { type: "start" },
+      { type: "tick", nowMs: 1000 },
+      { type: "input", value: "T" },
+      { type: "input", value: "Tx" },
+      { type: "input", value: "Txn" },
+      { type: "input", value: "Txny" },
+    );
+    expect(typo.typed).toBe("Tx");
+    expect(typo.mistakes).toBe(1);
+
+    const fixed = [
+      { type: "input", value: "T" },
+      { type: "input", value: "Ti" },
+      { type: "input", value: "Tin" },
+    ] as const;
+    const s = fixed.reduce(gameReducer, typo);
+    expect(s.typed).toBe("Tin");
+    expect(s.mistakes).toBe(1);
+  });
+
+  test("multi-char input is cut after the first wrong char", () => {
+    const s = run(
+      { type: "start" },
+      { type: "tick", nowMs: 1000 },
+      { type: "input", value: "tiny robot" },
+    );
+    expect(s.typed).toBe("t");
+    expect(s.mistakes).toBe(1);
+    expect(s.completedAtMs).toBeNull();
+  });
+
+  test("every wrong keystroke counts, also when fixed", () => {
+    const s = run(
+      { type: "start" },
+      { type: "tick", nowMs: 1000 },
+      { type: "input", value: "x" },
+      { type: "input", value: "" },
+      { type: "input", value: "y" },
+      { type: "input", value: "" },
+      { type: "input", value: "Tiny robot" },
+      { type: "tick", nowMs: 3000 },
+    );
+    expect(s.results[0]).toMatchObject({
+      perfect: true,
+      mistakes: 2,
+      wrongChars: 0,
+    });
+    expect(s.mistakes).toBe(0);
   });
 
   test("line locks at window end and next line activates", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1500 },
-      { type: "input", value: "tiny robot" },
+      { type: "input", value: "Tiny robot" },
       { type: "tick", nowMs: 3000 },
     );
     expect(s.lineIndex).toBe(1);
@@ -67,15 +121,15 @@ describe("gameReducer", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1500 },
-      { type: "input", value: "tiny robox" },
+      { type: "input", value: "Tiny robox" },
       { type: "enter" },
-      { type: "input", value: "dances" },
+      { type: "input", value: "Dances" },
     );
     expect(s.lockedEarly).toBe(true);
     expect(s.results).toHaveLength(1);
     expect(s.results[0]?.perfect).toBe(false);
     expect(s.results[0]?.activeMs).toBe(500);
-    expect(s.typed).toBe("tiny robox");
+    expect(s.typed).toBe("Tiny robox");
     const after = gameReducer(s, { type: "tick", nowMs: 3100 });
     expect(after.results).toHaveLength(1);
     expect(after.lineIndex).toBe(1);
@@ -85,7 +139,7 @@ describe("gameReducer", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1500 },
-      { type: "input", value: "tiny" },
+      { type: "input", value: "Tiny" },
       { type: "enter" },
     );
     expect(s.lockedEarly).toBe(false);
@@ -102,7 +156,7 @@ describe("gameReducer", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1500 },
-      { type: "input", value: "tiny" },
+      { type: "input", value: "Tiny" },
       { type: "end" },
     );
     expect(s.status).toBe("finished");
@@ -118,5 +172,78 @@ describe("gameReducer", () => {
     expect(s.status).toBe("playing");
     expect(s.results).toHaveLength(0);
     expect(s.lineIndex).toBe(0);
+  });
+});
+
+describe("skipTargetMs", () => {
+  // Made-up lines with a long intro and a long break.
+  const gappy: KaraokeLine[] = [
+    {
+      startMs: 10_000,
+      endMs: 12_000,
+      sungEndMs: 11_500,
+      text: "Hi",
+      words: [],
+    },
+    {
+      startMs: 30_000,
+      endMs: 32_000,
+      sungEndMs: 31_500,
+      text: "Yo",
+      words: [],
+    },
+  ];
+  const play = (...actions: Parameters<typeof gameReducer>[1][]) =>
+    actions.reduce(gameReducer, createGame(gappy));
+
+  test("not before start", () => {
+    expect(skipTargetMs(createGame(gappy))).toBeNull();
+  });
+
+  test("skips the intro to just before the first line", () => {
+    const s = play({ type: "start" }, { type: "tick", nowMs: 100 });
+    expect(skipTargetMs(s)).toBe(10_000 - SKIP_LEAD_IN_MS);
+  });
+
+  test("short gaps are not skippable", () => {
+    const s = play({ type: "start" }, { type: "tick", nowMs: 6000 });
+    expect(skipTargetMs(s)).toBeNull();
+  });
+
+  test("not while a line is active", () => {
+    const s = play({ type: "start" }, { type: "tick", nowMs: 10_500 });
+    expect(skipTargetMs(s)).toBeNull();
+  });
+
+  test("after an early lock, skips to the next line", () => {
+    const s = play(
+      { type: "start" },
+      { type: "tick", nowMs: 10_500 },
+      { type: "input", value: "Hi" },
+      { type: "enter" },
+    );
+    expect(s.lockedEarly).toBe(true);
+    expect(skipTargetMs(s)).toBe(30_000 - SKIP_LEAD_IN_MS);
+    // seeking there locks the line and waits for the next one
+    const after = gameReducer(s, { type: "tick", nowMs: 28_500 });
+    expect(after.lineIndex).toBe(1);
+    expect(after.results).toHaveLength(1);
+    expect(skipTargetMs(after)).toBeNull();
+  });
+
+  test("between lines after the window ended", () => {
+    const s = play({ type: "start" }, { type: "tick", nowMs: 13_000 });
+    expect(s.lineIndex).toBe(1);
+    expect(skipTargetMs(s)).toBe(30_000 - SKIP_LEAD_IN_MS);
+  });
+
+  test("nothing to skip to after the last line", () => {
+    const s = play(
+      { type: "start" },
+      { type: "tick", nowMs: 30_500 },
+      { type: "input", value: "Yo" },
+      { type: "enter" },
+    );
+    expect(skipTargetMs(s)).toBeNull();
   });
 });

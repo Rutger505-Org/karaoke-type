@@ -124,13 +124,16 @@ export function activeWordIndex(line: KaraokeLine, nowMs: number): number {
 
 export type CharState = "correct" | "wrong" | "pending";
 
-/** Case-insensitive comparison, one state per target character. */
+/**
+ * Case-sensitive comparison (after punctuation normalization), one state per
+ * target character.
+ */
 export function compareChars(target: string, typed: string): CharState[] {
   const t = normalizeChars(target);
   const y = normalizeChars(typed);
   return t.split("").map((char, i) => {
     const typedChar = y[i];
     if (typedChar === undefined) return "pending";
-    return typedChar.toLowerCase() === char.toLowerCase() ? "correct" : "wrong";
+    return typedChar === char ? "correct" : "wrong";
   });
 }

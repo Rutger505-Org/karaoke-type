@@ -9,6 +9,7 @@ import {
   currentLine,
   gameReducer,
   isLineActive,
+  skipTargetMs,
   type GameState,
 } from "@/lib/game";
 import { activeWordIndex, compareChars, type KaraokeWord } from "@/lib/lyrics";
@@ -29,6 +30,109 @@ import {
 } from "react";
 
 type AudioStatus = "loading" | "ready" | "error";
+
+/** Media keys / OS controls that could pause or move the game clock. */
+const BLOCKED_MEDIA_ACTIONS: MediaSessionAction[] = [
+  "pause",
+  "stop",
+  "seekbackward",
+  "seekforward",
+  "seekto",
+  "previoustrack",
+  "nexttrack",
+];
+/** More intercepted pauses than this within the window: stop fighting, ask the player. */
+const MAX_AUTO_RESUMES = 3;
+const AUTO_RESUME_WINDOW_MS = 2000;
+
+function errorName(error: unknown) {
+  return error instanceof Error ? error.name : String(error);
+}
+
+/**
+ * The game can't be paused: while playing, any pause (earbuds removed, media
+ * keys, OS controls) is undone right away. If the browser refuses to play
+ * again, `needsResume` asks the player to press Resume.
+ */
+function useUnpausable(
+  audioRef: React.RefObject<HTMLAudioElement | null>,
+  playing: boolean,
+) {
+  const [needsResume, setNeedsResume] = useState(false);
+
+  const resume = useCallback(
+    async (reason: string) => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      try {
+        await audio.play();
+        setNeedsResume(false);
+        console.info("[game] playback resumed", { reason });
+      } catch (error) {
+        console.warn("[game] resuming playback failed", {
+          reason,
+          error: errorName(error),
+        });
+        setNeedsResume(true);
+      }
+    },
+    [audioRef],
+  );
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!playing || !audio) return;
+
+    let recentResumes: number[] = [];
+    const onPause = () => {
+      if (audio.ended) return;
+      const now = performance.now();
+      recentResumes = recentResumes.filter(
+        (t) => now - t < AUTO_RESUME_WINDOW_MS,
+      );
+      if (recentResumes.length >= MAX_AUTO_RESUMES) {
+        console.warn("[game] audio keeps pausing, asking the player to resume");
+        setNeedsResume(true);
+        return;
+      }
+      recentResumes.push(now);
+      console.info("[game] pause intercepted, resuming");
+      void resume("pause-event");
+    };
+    const onPlaying = () => setNeedsResume(false);
+    audio.addEventListener("pause", onPause);
+    audio.addEventListener("playing", onPlaying);
+
+    const session = "mediaSession" in navigator ? navigator.mediaSession : null;
+    for (const action of BLOCKED_MEDIA_ACTIONS) {
+      try {
+        session?.setActionHandler(action, () =>
+          console.debug("[game] media session action ignored", { action }),
+        );
+      } catch {
+        console.debug("[game] media session action unsupported", { action });
+      }
+    }
+
+    return () => {
+      audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("playing", onPlaying);
+      for (const action of BLOCKED_MEDIA_ACTIONS) {
+        try {
+          session?.setActionHandler(action, null);
+        } catch {
+          // Unsupported action, nothing was registered.
+        }
+      }
+    };
+  }, [audioRef, playing, resume]);
+
+  return {
+    needsResume: playing && needsResume,
+    resume: () => resume("resume-button"),
+    clearResume: () => setNeedsResume(false),
+  };
+}
 
 /**
  * Tracks whether the <audio> element can play. Reads the element itself, so
@@ -72,6 +176,8 @@ export function Game({
   const [starting, setStarting] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
   const [volume, setVolume] = useState(0.8);
+  const playing = state.status === "playing";
+  const { needsResume, resume, clearResume } = useUnpausable(audioRef, playing);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
@@ -100,13 +206,17 @@ export function Game({
     if (!audio || starting) return;
     setStarting(true);
     setPlayError(null);
+    clearResume();
     try {
       audio.currentTime = 0;
       await audio.play();
       dispatch({ type: "start" });
+      console.info("[game] started", { lines: lines.length });
       inputRef.current?.focus();
     } catch (error) {
-      console.error("Audio playback failed", error);
+      console.error("[game] starting playback failed", {
+        error: errorName(error),
+      });
       setPlayError(
         error instanceof DOMException && error.name === "NotAllowedError"
           ? "The browser blocked playback. Press start again."
@@ -117,6 +227,21 @@ export function Game({
     }
   };
 
+  const onEnter = () => {
+    const target = skipTargetMs(state);
+    const audio = audioRef.current;
+    if (target === null || !audio) {
+      dispatch({ type: "enter" });
+      return;
+    }
+    // The audio time is the game clock: tick locks any passed lines.
+    console.info("[game] skipping gap", {
+      fromMs: Math.round(state.nowMs),
+      toMs: Math.round(target),
+    });
+    audio.currentTime = target / 1000;
+  };
+
   const stats = useMemo(() => computeStats(state.results), [state.results]);
 
   return (
@@ -125,7 +250,10 @@ export function Game({
         ref={audioRef}
         src={song.audioUrl}
         preload="auto"
-        onEnded={() => dispatch({ type: "end" })}
+        onEnded={() => {
+          console.info("[game] song ended");
+          dispatch({ type: "end" });
+        }}
       />
       <div className="flex flex-col gap-4">
         <StatsBar stats={stats} />
@@ -141,8 +269,12 @@ export function Game({
             state={state}
             inputRef={inputRef}
             onInput={(value) => dispatch({ type: "input", value })}
-            onEnter={() => dispatch({ type: "enter" })}
+            onEnter={onEnter}
             onStart={start}
+            needsResume={needsResume}
+            onResume={() => {
+              void resume().then(() => inputRef.current?.focus());
+            }}
             startLabel={
               audioStatus === "error"
                 ? "Audio unavailable"
@@ -247,7 +379,7 @@ function StatsBar({ stats }: Readonly<{ stats: GameStats }>) {
     { label: "Combo", value: `×${stats.combo}` },
   ];
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {items.map((item) => (
         <div key={item.label} className="bg-card rounded-lg border px-4 py-3">
           <div className="text-muted-foreground text-xs tracking-wider uppercase">
@@ -268,6 +400,8 @@ function TypingArea({
   onInput,
   onEnter,
   onStart,
+  needsResume,
+  onResume,
   startLabel,
   canStart,
   playerError,
@@ -277,6 +411,8 @@ function TypingArea({
   onInput: (value: string) => void;
   onEnter: () => void;
   onStart: () => void;
+  needsResume: boolean;
+  onResume: () => void;
   startLabel: string;
   canStart: boolean;
   playerError: string | null;
@@ -286,6 +422,8 @@ function TypingArea({
   const active = isLineActive(state);
   const playing = state.status === "playing";
   const waiting = playing && !!line && state.nowMs < line.startMs;
+  const skippable = skipTargetMs(state) !== null;
+  const skipHint = skippable ? " · Enter to skip" : "";
 
   const word = line?.words[line ? activeWordIndex(line, state.nowMs) : -1];
   const progress = line
@@ -306,11 +444,11 @@ function TypingArea({
         </div>
 
         <div className="min-h-28 font-mono">
-          <div className="text-muted-foreground mb-2 h-5 text-xs tracking-wider uppercase">
+          <div className="text-muted-foreground mb-2 min-h-5 text-xs tracking-wider uppercase">
             {waiting && line
-              ? `♪ next line in ${((line.startMs - state.nowMs) / 1000).toFixed(1)}s`
+              ? `♪ next line in ${((line.startMs - state.nowMs) / 1000).toFixed(1)}s${skipHint}`
               : state.lockedEarly
-                ? "✓ locked, waiting for the next line"
+                ? `✓ locked, waiting for the next line${skipHint}`
                 : playing
                   ? `line ${state.lineIndex + 1} / ${state.lines.length}`
                   : ""}
@@ -330,7 +468,7 @@ function TypingArea({
                 : "Press start, then type the lyrics as they're sung."}
             </p>
           )}
-          <p className="text-muted-foreground/50 mt-3 truncate text-lg">
+          <p className="text-muted-foreground/50 mt-3 text-lg [overflow-wrap:anywhere]">
             {playing && next ? next.text : "\u00A0"}
           </p>
         </div>
@@ -361,6 +499,16 @@ function TypingArea({
           )}
         />
 
+        {needsResume && (
+          <div className="bg-background/80 absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl backdrop-blur-sm">
+            <Button size="lg" onClick={onResume}>
+              Resume
+            </Button>
+            <p className="text-muted-foreground text-sm">
+              The browser paused the music. Press Resume to keep playing.
+            </p>
+          </div>
+        )}
         {!playing && (
           <div className="bg-background/80 absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl backdrop-blur-sm">
             <Button size="lg" onClick={onStart} disabled={!canStart}>
@@ -370,8 +518,9 @@ function TypingArea({
               <p className="text-sm text-red-400">{playerError}</p>
             )}
             <p className="text-muted-foreground text-sm">
-              Type each line while it&apos;s sung. Enter locks a fully typed
-              line early.
+              Type each line while it&apos;s sung, capitals and punctuation
+              count. A typo blocks you until you fix it. Enter locks a fully
+              typed line early and skips long instrumental breaks.
             </p>
           </div>
         )}
@@ -395,33 +544,69 @@ function LineText({
   word?: KaraokeWord;
 }>) {
   const states = compareChars(text, typed);
+  const renderChar = (i: number) => (
+    <span
+      key={i}
+      className={cn(
+        "relative",
+        // Spaces stay visible (caret, wrong-char ring) but remain line breaks.
+        text[i] === " " && "whitespace-break-spaces",
+        states[i] === "correct" && "text-emerald-400",
+        states[i] === "wrong" &&
+          "rounded-sm bg-red-500/30 text-red-300 ring-2 ring-red-500",
+        states[i] === "pending" && "text-muted-foreground",
+        showCaret && i === typed.length && "border-l-2 border-amber-400",
+        word &&
+          i >= word.start &&
+          i < word.end &&
+          "underline decoration-sky-400 decoration-2 underline-offset-8",
+      )}
+    >
+      {text[i]}
+      {states[i] === "wrong" && (
+        // What was typed instead, so it's clear why the cursor is stuck.
+        <span
+          aria-hidden
+          className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-sm bg-red-500 px-1 text-xs leading-4 whitespace-pre text-white"
+        >
+          {typed[i] === " " ? "␣" : typed[i]}
+        </span>
+      )}
+    </span>
+  );
+
   return (
     <p
       className={cn(
-        "text-2xl leading-relaxed break-words md:text-3xl",
+        "text-2xl leading-relaxed [overflow-wrap:anywhere] md:text-3xl",
         dimmed && "opacity-40",
       )}
     >
-      {text.split("").map((char, i) => (
-        <span
-          key={i}
-          className={cn(
-            "whitespace-pre",
-            states[i] === "correct" && "text-emerald-400",
-            states[i] === "wrong" && "rounded-sm bg-red-500/20 text-red-400",
-            states[i] === "pending" && "text-muted-foreground",
-            showCaret && i === typed.length && "border-l-2 border-amber-400",
-            word &&
-              i >= word.start &&
-              i < word.end &&
-              "underline decoration-sky-400 decoration-2 underline-offset-8",
-          )}
-        >
-          {char}
-        </span>
-      ))}
+      {segments(text).map(({ start, end, space }) =>
+        space ? (
+          renderChar(start)
+        ) : (
+          // One box per word: no breaks inside unless it's wider than the line.
+          <span key={start} className="inline-block max-w-full">
+            {range(start, end).map(renderChar)}
+          </span>
+        ),
+      )}
     </p>
   );
+}
+
+/** Splits text into words and single whitespace chars, as index ranges. */
+function segments(text: string) {
+  return Array.from(text.matchAll(/\S+|\s/g), (m) => ({
+    start: m.index,
+    end: m.index + m[0].length,
+    space: /\s/.test(m[0]),
+  }));
+}
+
+function range(start: number, end: number) {
+  return Array.from({ length: end - start }, (_, i) => start + i);
 }
 
 function EndScreen({

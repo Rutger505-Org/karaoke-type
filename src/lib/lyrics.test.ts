@@ -105,14 +105,18 @@ describe("activeWordIndex", () => {
 });
 
 describe("compareChars", () => {
-  test("case-insensitive with pending tail", () => {
-    expect(compareChars("Abc'd", "aXc")).toEqual([
+  test("case-sensitive with pending tail", () => {
+    expect(compareChars("Abc'd", "AXc")).toEqual([
       "correct",
       "wrong",
       "correct",
       "pending",
       "pending",
     ]);
+  });
+
+  test("wrong case is wrong", () => {
+    expect(compareChars("Abc", "abC")).toEqual(["wrong", "correct", "wrong"]);
   });
 
   test("typed curly apostrophe matches straight target", () => {

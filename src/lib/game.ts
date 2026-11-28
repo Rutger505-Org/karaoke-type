@@ -9,6 +9,8 @@ export type GameState = {
   /** Index of the line being typed or, before its start, the upcoming line. */
   lineIndex: number;
   typed: string;
+  /** Wrong keystrokes on the current line, also the ones fixed with backspace. */
+  mistakes: number;
   /** Song time at which `typed` became fully correct. */
   completedAtMs: number | null;
   /** The current line was locked early with Enter; waiting for its window to end. */
@@ -30,6 +32,7 @@ export function createGame(lines: KaraokeLine[]): GameState {
     status: "idle",
     lineIndex: 0,
     typed: "",
+    mistakes: 0,
     completedAtMs: null,
     lockedEarly: false,
     results: [],
@@ -53,6 +56,27 @@ export function isLineActive(state: GameState): boolean {
   );
 }
 
+/** Gaps until the next line longer than this can be skipped with Enter. */
+export const SKIP_MIN_GAP_MS = 4000;
+/** Skipping lands this long before the next line, so it can be read first. */
+export const SKIP_LEAD_IN_MS = 1500;
+
+/**
+ * Song time to seek to when Enter skips an instrumental gap, or null when
+ * there's nothing to skip: a line is active, the gap is short, or no line
+ * follows. Seeking the audio is enough; `tick` locks passed lines.
+ */
+export function skipTargetMs(state: GameState): number | null {
+  if (state.status !== "playing" || isLineActive(state)) return null;
+  const line = currentLine(state);
+  if (!line) return null;
+  // Waiting for the current line to start, or it was locked early with Enter.
+  const next =
+    state.nowMs < line.startMs ? line : state.lines[state.lineIndex + 1];
+  if (!next || next.startMs - state.nowMs <= SKIP_MIN_GAP_MS) return null;
+  return next.startMs - SKIP_LEAD_IN_MS;
+}
+
 function lockCurrent(state: GameState, lockedAtMs: number): LineResult[] {
   const line = currentLine(state);
   if (!line || state.lockedEarly) return state.results;
@@ -61,6 +85,7 @@ function lockCurrent(state: GameState, lockedAtMs: number): LineResult[] {
     {
       target: line.text,
       typed: state.typed,
+      mistakes: state.mistakes,
       startMs: line.startMs,
       endMs: line.endMs,
       completedAtMs: state.completedAtMs,
@@ -78,6 +103,7 @@ function advance(state: GameState, results: LineResult[]): GameState {
     results,
     lineIndex,
     typed: "",
+    mistakes: 0,
     completedAtMs: null,
     lockedEarly: false,
     status: lineIndex >= state.lines.length ? "finished" : state.status,
@@ -106,13 +132,22 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "input": {
       if (!isLineActive(state)) return state;
       const line = currentLine(state)!;
-      const typed = action.value.replace(/\n/g, "").slice(0, line.text.length);
-      const complete =
-        typed.length === line.text.length &&
-        compareChars(line.text, typed).every((s) => s === "correct");
+      const raw = action.value.replace(/\n/g, "").slice(0, line.text.length);
+      const states = compareChars(line.text, raw);
+      // Stop at the first typo: nothing can be typed after a wrong char.
+      const firstWrong = states.indexOf("wrong");
+      const typed = firstWrong === -1 ? raw : raw.slice(0, firstWrong + 1);
+      if (typed === state.typed) return state;
+      // A new wrong char at the cursor (not just backspacing) is a mistake.
+      const mistake =
+        firstWrong !== -1 &&
+        firstWrong === typed.length - 1 &&
+        !state.typed.startsWith(typed);
+      const complete = typed.length === line.text.length && firstWrong === -1;
       return {
         ...state,
         typed,
+        mistakes: state.mistakes + (mistake ? 1 : 0),
         completedAtMs: complete ? (state.completedAtMs ?? state.nowMs) : null,
       };
     }
@@ -139,6 +174,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         results,
         typed: "",
+        mistakes: 0,
         lockedEarly: false,
         status: "finished",
       };
