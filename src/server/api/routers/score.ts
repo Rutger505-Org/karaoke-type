@@ -1,3 +1,4 @@
+import { publicDisplayName } from "@/lib/display-name";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -60,7 +61,7 @@ export const scoreRouter = createTRPCRouter({
         .where(eq(score.songSlug, input.songSlug))
         .as("ranked");
 
-      return ctx.db
+      const rows = await ctx.db
         .select({
           userId: ranked.userId,
           name: user.name,
@@ -74,5 +75,11 @@ export const scoreRouter = createTRPCRouter({
         .where(eq(ranked.rank, 1))
         .orderBy(desc(ranked.score), asc(ranked.createdAt))
         .limit(10);
+
+      // Never empty and never the (private) email.
+      return rows.map((row) => ({
+        ...row,
+        name: publicDisplayName(row.name, row.userId),
+      }));
     }),
 });

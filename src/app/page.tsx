@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { hasDisplayName } from "@/lib/display-name";
 import { isAdmin } from "@/server/admin";
 import { auth } from "@/server/auth";
 import { getSongIndex } from "@/server/catalog";
@@ -33,7 +34,21 @@ export default async function Home() {
         <div className="text-muted-foreground flex shrink-0 flex-col items-end gap-1 text-sm">
           {session ? (
             <>
-              <span>{session.user.name || session.user.email}</span>
+              <Link
+                href="/account"
+                className="hover:text-foreground underline"
+                title="Account settings"
+              >
+                {session.user.name.trim() || session.user.email}
+              </Link>
+              {!hasDisplayName(session.user.name) && (
+                <Link
+                  href="/account"
+                  className="text-emerald-400 underline hover:text-emerald-300"
+                >
+                  Pick a display name
+                </Link>
+              )}
               {admin && (
                 <Link href="/admin" className="hover:text-foreground underline">
                   Admin
