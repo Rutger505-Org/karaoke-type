@@ -1,8 +1,10 @@
 import { env } from "@/env";
+import { displayNameSchema } from "@/lib/display-name";
 import { isAdminEmail, userExists } from "@/server/admin";
 import { db } from "@/server/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError } from "better-auth/api";
 import { magicLink } from "better-auth/plugins";
 import nodemailer from "nodemailer";
 
@@ -16,12 +18,57 @@ const transporter = nodemailer.createTransport({
   secure: true,
 });
 
+/**
+ * Server-side guard for names set through any Better Auth endpoint (sign-up,
+ * update-user), so they can't bypass the /account validation. Empty is only
+ * allowed on create (magic-link sign-up has no name; /auth/continue asks).
+ */
+function normalizeName(
+  name: unknown,
+  { allowEmpty }: { allowEmpty: boolean },
+): string {
+  if (allowEmpty && (typeof name !== "string" || !name.trim())) return "";
+  const parsed = displayNameSchema.safeParse(name);
+  if (!parsed.success) {
+    console.warn("[auth] rejected invalid display name", {
+      length: typeof name === "string" ? name.length : null,
+      issue: parsed.error.issues[0]?.message,
+    });
+    throw new APIError("BAD_REQUEST", {
+      message: `Invalid name: ${parsed.error.issues[0]?.message ?? "invalid"}`,
+    });
+  }
+  return parsed.data;
+}
+
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "sqlite",
   }),
   emailAndPassword: {
     enabled: true,
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (newUser) => {
+          const name = normalizeName(newUser.name, { allowEmpty: true });
+          console.info("[auth] creating user", { hasName: !!name });
+          return { data: { ...newUser, name } };
+        },
+      },
+      update: {
+        before: async (data) => {
+          if (!("name" in data)) return;
+          return {
+            data: {
+              ...data,
+              name: normalizeName(data.name, { allowEmpty: false }),
+            },
+          };
+        },
+      },
+    },
   },
   plugins: [
     magicLink({

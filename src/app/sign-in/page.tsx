@@ -5,20 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { postSignInUrl, safeCallbackUrl } from "@/lib/callback-url";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { use, useEffect, useState } from "react";
-
-/** Only same-origin paths, so the callback can't redirect off-site. */
-function safeCallbackUrl(value: string | string[] | undefined): string {
-  return typeof value === "string" &&
-    value.startsWith("/") &&
-    !value.startsWith("//") &&
-    !value.startsWith("/\\")
-    ? value
-    : "/";
-}
 
 export default function SignInPage({
   searchParams,
@@ -26,6 +17,8 @@ export default function SignInPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const callbackUrl = safeCallbackUrl(use(searchParams).callbackUrl);
+  // Via /auth/continue: asks users without a display name to pick one first.
+  const continueUrl = postSignInUrl(callbackUrl);
   const { data: session } = useSession();
   const router = useRouter();
 
@@ -39,7 +32,7 @@ export default function SignInPage({
         email,
         password,
         rememberMe: true,
-        callbackURL: callbackUrl,
+        callbackURL: continueUrl,
       });
       if (response?.error) {
         throw new Error(response.error.message ?? response.error.statusText);
@@ -51,7 +44,7 @@ export default function SignInPage({
     mutationFn: async () => {
       const response = await signIn.magicLink({
         email: magicEmail,
-        callbackURL: callbackUrl,
+        callbackURL: continueUrl,
       });
       if (response?.error) {
         throw new Error(response.error.message ?? response.error.statusText);
@@ -61,9 +54,9 @@ export default function SignInPage({
 
   useEffect(() => {
     if (session) {
-      router.push(callbackUrl);
+      router.push(continueUrl);
     }
-  }, [router, session, callbackUrl]);
+  }, [router, session, continueUrl]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

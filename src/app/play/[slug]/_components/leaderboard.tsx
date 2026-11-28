@@ -1,7 +1,9 @@
 "use client";
 
+import { DisplayNameForm } from "@/app/_components/display-name-form";
 import { useSession } from "@/client/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { hasDisplayName } from "@/lib/display-name";
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
 
@@ -40,7 +42,7 @@ export function Leaderboard({ songSlug }: Readonly<{ songSlug: string }>) {
                 )}
               >
                 <span className="text-muted-foreground">{index + 1}</span>
-                <span className="truncate">{entry.name || "anonymous"}</span>
+                <span className="truncate">{entry.name}</span>
                 <span className="text-right tabular-nums">
                   {entry.score.toLocaleString("en-US")}
                   <span className="text-muted-foreground ml-2 text-xs">
@@ -50,6 +52,18 @@ export function Leaderboard({ songSlug }: Readonly<{ songSlug: string }>) {
               </li>
             ))}
           </ol>
+        )}
+        {session && !hasDisplayName(session.user.name) && (
+          <div className="mt-4 border-t pt-4">
+            <p className="text-muted-foreground mb-3 text-sm">
+              Your scores show up as a generic player name. Pick a display name:
+            </p>
+            <DisplayNameForm
+              initialName=""
+              id="leaderboard-display-name"
+              submitLabel="Set"
+            />
+          </div>
         )}
       </CardContent>
     </Card>

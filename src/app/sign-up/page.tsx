@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { postSignInUrl } from "@/lib/callback-url";
+import { DISPLAY_NAME_MAX, displayNameSchema } from "@/lib/display-name";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,22 +22,28 @@ export default function SignUpPage() {
 
   const mutation = useMutation({
     mutationFn: async () => {
+      const parsedName = displayNameSchema.safeParse(name);
+      if (!parsedName.success) {
+        throw new Error(
+          `Name: ${parsedName.error.issues[0]?.message ?? "invalid"}`,
+        );
+      }
       const response = await signUp.email({
         email,
-        name,
+        name: parsedName.data,
         password,
       });
       if (response.error) {
         throw new Error(response.error.message ?? "Sign up failed");
       }
 
-      router.push("/");
+      router.push(postSignInUrl("/"));
     },
   });
 
   useEffect(() => {
     if (session) {
-      router.push("/");
+      router.push(postSignInUrl("/"));
     }
   }, [router, session]);
 
@@ -53,14 +61,15 @@ export default function SignUpPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name">Display name</Label>
               <Input
                 id="name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                placeholder="Your name"
+                maxLength={DISPLAY_NAME_MAX + 8}
+                placeholder="Shown on leaderboards"
               />
             </div>
             <div>
