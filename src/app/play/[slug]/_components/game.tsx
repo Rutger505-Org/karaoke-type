@@ -379,7 +379,7 @@ function StatsBar({ stats }: Readonly<{ stats: GameStats }>) {
     { label: "Combo", value: `×${stats.combo}` },
   ];
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {items.map((item) => (
         <div key={item.label} className="bg-card rounded-lg border px-4 py-3">
           <div className="text-muted-foreground text-xs tracking-wider uppercase">
@@ -444,7 +444,7 @@ function TypingArea({
         </div>
 
         <div className="min-h-28 font-mono">
-          <div className="text-muted-foreground mb-2 h-5 text-xs tracking-wider uppercase">
+          <div className="text-muted-foreground mb-2 min-h-5 text-xs tracking-wider uppercase">
             {waiting && line
               ? `♪ next line in ${((line.startMs - state.nowMs) / 1000).toFixed(1)}s${skipHint}`
               : state.lockedEarly
@@ -468,7 +468,7 @@ function TypingArea({
                 : "Press start, then type the lyrics as they're sung."}
             </p>
           )}
-          <p className="text-muted-foreground/50 mt-3 truncate text-lg">
+          <p className="text-muted-foreground/50 mt-3 text-lg [overflow-wrap:anywhere]">
             {playing && next ? next.text : "\u00A0"}
           </p>
         </div>
@@ -544,43 +544,69 @@ function LineText({
   word?: KaraokeWord;
 }>) {
   const states = compareChars(text, typed);
+  const renderChar = (i: number) => (
+    <span
+      key={i}
+      className={cn(
+        "relative",
+        // Spaces stay visible (caret, wrong-char ring) but remain line breaks.
+        text[i] === " " && "whitespace-break-spaces",
+        states[i] === "correct" && "text-emerald-400",
+        states[i] === "wrong" &&
+          "rounded-sm bg-red-500/30 text-red-300 ring-2 ring-red-500",
+        states[i] === "pending" && "text-muted-foreground",
+        showCaret && i === typed.length && "border-l-2 border-amber-400",
+        word &&
+          i >= word.start &&
+          i < word.end &&
+          "underline decoration-sky-400 decoration-2 underline-offset-8",
+      )}
+    >
+      {text[i]}
+      {states[i] === "wrong" && (
+        // What was typed instead, so it's clear why the cursor is stuck.
+        <span
+          aria-hidden
+          className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-sm bg-red-500 px-1 text-xs leading-4 whitespace-pre text-white"
+        >
+          {typed[i] === " " ? "␣" : typed[i]}
+        </span>
+      )}
+    </span>
+  );
+
   return (
     <p
       className={cn(
-        "text-2xl leading-relaxed break-words md:text-3xl",
+        "text-2xl leading-relaxed [overflow-wrap:anywhere] md:text-3xl",
         dimmed && "opacity-40",
       )}
     >
-      {text.split("").map((char, i) => (
-        <span
-          key={i}
-          className={cn(
-            "relative whitespace-pre",
-            states[i] === "correct" && "text-emerald-400",
-            states[i] === "wrong" &&
-              "rounded-sm bg-red-500/30 text-red-300 ring-2 ring-red-500",
-            states[i] === "pending" && "text-muted-foreground",
-            showCaret && i === typed.length && "border-l-2 border-amber-400",
-            word &&
-              i >= word.start &&
-              i < word.end &&
-              "underline decoration-sky-400 decoration-2 underline-offset-8",
-          )}
-        >
-          {char}
-          {states[i] === "wrong" && (
-            // What was typed instead, so it's clear why the cursor is stuck.
-            <span
-              aria-hidden
-              className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-sm bg-red-500 px-1 text-xs leading-4 text-white"
-            >
-              {typed[i] === " " ? "␣" : typed[i]}
-            </span>
-          )}
-        </span>
-      ))}
+      {segments(text).map(({ start, end, space }) =>
+        space ? (
+          renderChar(start)
+        ) : (
+          // One box per word: no breaks inside unless it's wider than the line.
+          <span key={start} className="inline-block max-w-full">
+            {range(start, end).map(renderChar)}
+          </span>
+        ),
+      )}
     </p>
   );
+}
+
+/** Splits text into words and single whitespace chars, as index ranges. */
+function segments(text: string) {
+  return Array.from(text.matchAll(/\S+|\s/g), (m) => ({
+    start: m.index,
+    end: m.index + m[0].length,
+    space: /\s/.test(m[0]),
+  }));
+}
+
+function range(start: number, end: number) {
+  return Array.from({ length: end - start }, (_, i) => start + i);
 }
 
 function EndScreen({
