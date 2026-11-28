@@ -9,6 +9,7 @@ import {
   currentLine,
   gameReducer,
   isLineActive,
+  skipTargetMs,
   type GameState,
 } from "@/lib/game";
 import { activeWordIndex, compareChars, type KaraokeWord } from "@/lib/lyrics";
@@ -117,6 +118,21 @@ export function Game({
     }
   };
 
+  const onEnter = () => {
+    const target = skipTargetMs(state);
+    const audio = audioRef.current;
+    if (target === null || !audio) {
+      dispatch({ type: "enter" });
+      return;
+    }
+    // The audio time is the game clock: tick locks any passed lines.
+    console.info("[game] skipping gap", {
+      fromMs: Math.round(state.nowMs),
+      toMs: Math.round(target),
+    });
+    audio.currentTime = target / 1000;
+  };
+
   const stats = useMemo(() => computeStats(state.results), [state.results]);
 
   return (
@@ -141,7 +157,7 @@ export function Game({
             state={state}
             inputRef={inputRef}
             onInput={(value) => dispatch({ type: "input", value })}
-            onEnter={() => dispatch({ type: "enter" })}
+            onEnter={onEnter}
             onStart={start}
             startLabel={
               audioStatus === "error"
@@ -286,6 +302,8 @@ function TypingArea({
   const active = isLineActive(state);
   const playing = state.status === "playing";
   const waiting = playing && !!line && state.nowMs < line.startMs;
+  const skippable = skipTargetMs(state) !== null;
+  const skipHint = skippable ? " · Enter to skip" : "";
 
   const word = line?.words[line ? activeWordIndex(line, state.nowMs) : -1];
   const progress = line
@@ -308,9 +326,9 @@ function TypingArea({
         <div className="min-h-28 font-mono">
           <div className="text-muted-foreground mb-2 h-5 text-xs tracking-wider uppercase">
             {waiting && line
-              ? `♪ next line in ${((line.startMs - state.nowMs) / 1000).toFixed(1)}s`
+              ? `♪ next line in ${((line.startMs - state.nowMs) / 1000).toFixed(1)}s${skipHint}`
               : state.lockedEarly
-                ? "✓ locked, waiting for the next line"
+                ? `✓ locked, waiting for the next line${skipHint}`
                 : playing
                   ? `line ${state.lineIndex + 1} / ${state.lines.length}`
                   : ""}
@@ -372,7 +390,7 @@ function TypingArea({
             <p className="text-muted-foreground text-sm">
               Type each line while it&apos;s sung, capitals and punctuation
               count. A typo blocks you until you fix it. Enter locks a fully
-              typed line early.
+              typed line early and skips long instrumental breaks.
             </p>
           </div>
         )}

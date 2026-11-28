@@ -56,6 +56,27 @@ export function isLineActive(state: GameState): boolean {
   );
 }
 
+/** Gaps until the next line longer than this can be skipped with Enter. */
+export const SKIP_MIN_GAP_MS = 4000;
+/** Skipping lands this long before the next line, so it can be read first. */
+export const SKIP_LEAD_IN_MS = 1500;
+
+/**
+ * Song time to seek to when Enter skips an instrumental gap, or null when
+ * there's nothing to skip: a line is active, the gap is short, or no line
+ * follows. Seeking the audio is enough; `tick` locks passed lines.
+ */
+export function skipTargetMs(state: GameState): number | null {
+  if (state.status !== "playing" || isLineActive(state)) return null;
+  const line = currentLine(state);
+  if (!line) return null;
+  // Waiting for the current line to start, or it was locked early with Enter.
+  const next =
+    state.nowMs < line.startMs ? line : state.lines[state.lineIndex + 1];
+  if (!next || next.startMs - state.nowMs <= SKIP_MIN_GAP_MS) return null;
+  return next.startMs - SKIP_LEAD_IN_MS;
+}
+
 function lockCurrent(state: GameState, lockedAtMs: number): LineResult[] {
   const line = currentLine(state);
   if (!line || state.lockedEarly) return state.results;

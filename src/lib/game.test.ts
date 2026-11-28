@@ -2,6 +2,8 @@ import {
   createGame,
   gameReducer,
   isLineActive,
+  SKIP_LEAD_IN_MS,
+  skipTargetMs,
   type GameState,
 } from "@/lib/game";
 import { type KaraokeLine } from "@/lib/lyrics";
@@ -170,5 +172,78 @@ describe("gameReducer", () => {
     expect(s.status).toBe("playing");
     expect(s.results).toHaveLength(0);
     expect(s.lineIndex).toBe(0);
+  });
+});
+
+describe("skipTargetMs", () => {
+  // Made-up lines with a long intro and a long break.
+  const gappy: KaraokeLine[] = [
+    {
+      startMs: 10_000,
+      endMs: 12_000,
+      sungEndMs: 11_500,
+      text: "Hi",
+      words: [],
+    },
+    {
+      startMs: 30_000,
+      endMs: 32_000,
+      sungEndMs: 31_500,
+      text: "Yo",
+      words: [],
+    },
+  ];
+  const play = (...actions: Parameters<typeof gameReducer>[1][]) =>
+    actions.reduce(gameReducer, createGame(gappy));
+
+  test("not before start", () => {
+    expect(skipTargetMs(createGame(gappy))).toBeNull();
+  });
+
+  test("skips the intro to just before the first line", () => {
+    const s = play({ type: "start" }, { type: "tick", nowMs: 100 });
+    expect(skipTargetMs(s)).toBe(10_000 - SKIP_LEAD_IN_MS);
+  });
+
+  test("short gaps are not skippable", () => {
+    const s = play({ type: "start" }, { type: "tick", nowMs: 6000 });
+    expect(skipTargetMs(s)).toBeNull();
+  });
+
+  test("not while a line is active", () => {
+    const s = play({ type: "start" }, { type: "tick", nowMs: 10_500 });
+    expect(skipTargetMs(s)).toBeNull();
+  });
+
+  test("after an early lock, skips to the next line", () => {
+    const s = play(
+      { type: "start" },
+      { type: "tick", nowMs: 10_500 },
+      { type: "input", value: "Hi" },
+      { type: "enter" },
+    );
+    expect(s.lockedEarly).toBe(true);
+    expect(skipTargetMs(s)).toBe(30_000 - SKIP_LEAD_IN_MS);
+    // seeking there locks the line and waits for the next one
+    const after = gameReducer(s, { type: "tick", nowMs: 28_500 });
+    expect(after.lineIndex).toBe(1);
+    expect(after.results).toHaveLength(1);
+    expect(skipTargetMs(after)).toBeNull();
+  });
+
+  test("between lines after the window ended", () => {
+    const s = play({ type: "start" }, { type: "tick", nowMs: 13_000 });
+    expect(s.lineIndex).toBe(1);
+    expect(skipTargetMs(s)).toBe(30_000 - SKIP_LEAD_IN_MS);
+  });
+
+  test("nothing to skip to after the last line", () => {
+    const s = play(
+      { type: "start" },
+      { type: "tick", nowMs: 30_500 },
+      { type: "input", value: "Yo" },
+      { type: "enter" },
+    );
+    expect(skipTargetMs(s)).toBeNull();
   });
 });
