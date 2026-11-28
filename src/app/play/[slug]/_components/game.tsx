@@ -370,7 +370,7 @@ function TypingArea({
               <p className="text-sm text-red-400">{playerError}</p>
             )}
             <p className="text-muted-foreground text-sm">
-              Type each line while it&apos;s sung. Enter locks a fully typed
+              Type each line while it&apos;s sung, capitals and punctuation count. Enter locks a fully typed
               line early.
             </p>
           </div>

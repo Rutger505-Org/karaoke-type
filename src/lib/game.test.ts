@@ -39,9 +39,9 @@ describe("gameReducer", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1000 },
-      { type: "input", value: "tiny robot and more" },
+      { type: "input", value: "Tiny robot and more" },
     );
-    expect(s.typed).toBe("tiny robot");
+    expect(s.typed).toBe("Tiny robot");
     expect(s.completedAtMs).toBe(1000);
   });
 
@@ -49,7 +49,7 @@ describe("gameReducer", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1500 },
-      { type: "input", value: "tiny robot" },
+      { type: "input", value: "Tiny robot" },
       { type: "tick", nowMs: 3000 },
     );
     expect(s.lineIndex).toBe(1);
@@ -67,15 +67,15 @@ describe("gameReducer", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1500 },
-      { type: "input", value: "tiny robox" },
+      { type: "input", value: "Tiny robox" },
       { type: "enter" },
-      { type: "input", value: "dances" },
+      { type: "input", value: "Dances" },
     );
     expect(s.lockedEarly).toBe(true);
     expect(s.results).toHaveLength(1);
     expect(s.results[0]?.perfect).toBe(false);
     expect(s.results[0]?.activeMs).toBe(500);
-    expect(s.typed).toBe("tiny robox");
+    expect(s.typed).toBe("Tiny robox");
     const after = gameReducer(s, { type: "tick", nowMs: 3100 });
     expect(after.results).toHaveLength(1);
     expect(after.lineIndex).toBe(1);
@@ -85,7 +85,7 @@ describe("gameReducer", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1500 },
-      { type: "input", value: "tiny" },
+      { type: "input", value: "Tiny" },
       { type: "enter" },
     );
     expect(s.lockedEarly).toBe(false);
@@ -102,7 +102,7 @@ describe("gameReducer", () => {
     const s = run(
       { type: "start" },
       { type: "tick", nowMs: 1500 },
-      { type: "input", value: "tiny" },
+      { type: "input", value: "Tiny" },
       { type: "end" },
     );
     expect(s.status).toBe("finished");
