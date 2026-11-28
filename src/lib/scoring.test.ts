@@ -1,6 +1,7 @@
 import {
   computeStats,
   EARLY_BONUS_MAX,
+  MISTAKE_PENALTY,
   PERFECT_BONUS,
   scoreLine,
   type LineAttempt,
@@ -35,6 +36,20 @@ describe("scoreLine", () => {
     expect(r.wrongChars).toBe(1);
     expect(r.points).toBe(105);
     expect(r.perfect).toBe(false);
+  });
+
+  test("every mistake costs, also fixed ones", () => {
+    const r = scoreLine(
+      { ...base, typed: "Purple socks", mistakes: 3, completedAtMs: 3999 },
+      0,
+    );
+    expect(r.mistakes).toBe(3);
+    expect(r.basePoints).toBe(120 - 3 * MISTAKE_PENALTY);
+    expect(r.perfect).toBe(true);
+  });
+
+  test("a wrong char left in the line counts as a mistake", () => {
+    expect(scoreLine({ ...base, typed: "Pux" }, 0).mistakes).toBe(1);
   });
 
   test("penalty never goes below zero", () => {
@@ -104,5 +119,16 @@ describe("computeStats", () => {
     expect(stats.combo).toBe(0);
     expect(stats.maxCombo).toBe(1);
     expect(stats.perfectLines).toBe(1);
+  });
+
+  test("fixed mistakes lower accuracy", () => {
+    const clean = scoreLine({ ...base, typed: "Purple socks" }, 0);
+    const fixed = scoreLine({ ...base, typed: "Purple socks", mistakes: 3 }, 0);
+    const leftIn = scoreLine({ ...base, typed: "Purple sockx" }, 0);
+    expect(computeStats([clean]).accuracy).toBe(100);
+    // 12 correct of 12 chars + 3 fixed mistakes
+    expect(computeStats([fixed]).accuracy).toBe(80);
+    // the wrong char left in is not counted twice
+    expect(computeStats([leftIn]).accuracy).toBe(91.7);
   });
 });

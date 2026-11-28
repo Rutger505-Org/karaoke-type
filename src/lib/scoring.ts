@@ -1,7 +1,7 @@
 import { compareChars } from "@/lib/lyrics";
 
 export const POINTS_PER_CHAR = 10;
-export const WRONG_CHAR_PENALTY = 5;
+export const MISTAKE_PENALTY = 5;
 /** Bonus for a line typed fully correct before its window ends. */
 export const PERFECT_BONUS = 50;
 /** Extra bonus scaled by how much of the window was left. Kept small: sync matters more than speed. */
@@ -13,6 +13,8 @@ export const MAX_COMBO_MULTIPLIER = 2;
 export type LineAttempt = {
   target: string;
   typed: string;
+  /** Wrong keystrokes on the line, including fixed ones. Defaults to the wrong chars left in `typed`. */
+  mistakes?: number;
   startMs: number;
   endMs: number;
   /** Song time at which the typed text became fully correct, if it did. */
@@ -25,6 +27,8 @@ export type LineResult = {
   correctChars: number;
   wrongChars: number;
   missedChars: number;
+  /** Wrong keystrokes, including ones fixed with backspace. */
+  mistakes: number;
   perfect: boolean;
   basePoints: number;
   bonusPoints: number;
@@ -43,7 +47,8 @@ export function comboMultiplier(previousCombo: number): number {
 /**
  * Scores a locked line.
  *
- * - base = correct × 10 − wrong × 5 (never below 0)
+ * - base = correct × 10 − mistakes × 5 (never below 0); a mistake is every
+ *   wrong keystroke, also when fixed later
  * - perfect (all chars correct, completed before the window ends):
  *   bonus = 50 + 25 × fraction of the window still left
  * - perfect lines are multiplied by 1 + 0.1 × previous combo (max 2×)
@@ -56,6 +61,7 @@ export function scoreLine(
   const correctChars = states.filter((s) => s === "correct").length;
   const wrongChars = states.filter((s) => s === "wrong").length;
   const missedChars = states.length - correctChars - wrongChars;
+  const mistakes = Math.max(attempt.mistakes ?? 0, wrongChars);
 
   const windowMs = Math.max(1, attempt.endMs - attempt.startMs);
   const perfect =
@@ -65,7 +71,7 @@ export function scoreLine(
 
   const basePoints = Math.max(
     0,
-    correctChars * POINTS_PER_CHAR - wrongChars * WRONG_CHAR_PENALTY,
+    correctChars * POINTS_PER_CHAR - mistakes * MISTAKE_PENALTY,
   );
 
   let bonusPoints = 0;
@@ -92,6 +98,7 @@ export function scoreLine(
     correctChars,
     wrongChars,
     missedChars,
+    mistakes,
     perfect,
     basePoints,
     bonusPoints,
@@ -104,7 +111,7 @@ export function scoreLine(
 
 export type GameStats = {
   score: number;
-  /** Percentage (0-100) of lyric characters typed correctly. */
+  /** Percentage (0-100): correct chars / (lyric chars + fixed mistakes), so typos fixed with backspace still count. */
   accuracy: number;
   wpm: number;
   combo: number;
@@ -125,7 +132,9 @@ export function computeStats(results: LineResult[]): GameStats {
   for (const r of results) {
     score += r.points;
     correct += r.correctChars;
-    total += r.correctChars + r.wrongChars + r.missedChars;
+    // Mistakes still in the line are already counted as wrong chars.
+    const fixedMistakes = r.mistakes - r.wrongChars;
+    total += r.correctChars + r.wrongChars + r.missedChars + fixedMistakes;
     activeMs += r.activeMs;
     maxCombo = Math.max(maxCombo, r.combo);
     if (r.perfect) perfectLines++;

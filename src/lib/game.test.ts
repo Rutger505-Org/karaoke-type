@@ -45,6 +45,58 @@ describe("gameReducer", () => {
     expect(s.completedAtMs).toBe(1000);
   });
 
+  test("stops at the first typo; backspace keeps working", () => {
+    const typo = run(
+      { type: "start" },
+      { type: "tick", nowMs: 1000 },
+      { type: "input", value: "T" },
+      { type: "input", value: "Tx" },
+      { type: "input", value: "Txn" },
+      { type: "input", value: "Txny" },
+    );
+    expect(typo.typed).toBe("Tx");
+    expect(typo.mistakes).toBe(1);
+
+    const fixed = [
+      { type: "input", value: "T" },
+      { type: "input", value: "Ti" },
+      { type: "input", value: "Tin" },
+    ] as const;
+    const s = fixed.reduce(gameReducer, typo);
+    expect(s.typed).toBe("Tin");
+    expect(s.mistakes).toBe(1);
+  });
+
+  test("multi-char input is cut after the first wrong char", () => {
+    const s = run(
+      { type: "start" },
+      { type: "tick", nowMs: 1000 },
+      { type: "input", value: "tiny robot" },
+    );
+    expect(s.typed).toBe("t");
+    expect(s.mistakes).toBe(1);
+    expect(s.completedAtMs).toBeNull();
+  });
+
+  test("every wrong keystroke counts, also when fixed", () => {
+    const s = run(
+      { type: "start" },
+      { type: "tick", nowMs: 1000 },
+      { type: "input", value: "x" },
+      { type: "input", value: "" },
+      { type: "input", value: "y" },
+      { type: "input", value: "" },
+      { type: "input", value: "Tiny robot" },
+      { type: "tick", nowMs: 3000 },
+    );
+    expect(s.results[0]).toMatchObject({
+      perfect: true,
+      mistakes: 2,
+      wrongChars: 0,
+    });
+    expect(s.mistakes).toBe(0);
+  });
+
   test("line locks at window end and next line activates", () => {
     const s = run(
       { type: "start" },

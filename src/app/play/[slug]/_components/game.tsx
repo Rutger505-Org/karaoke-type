@@ -370,8 +370,9 @@ function TypingArea({
               <p className="text-sm text-red-400">{playerError}</p>
             )}
             <p className="text-muted-foreground text-sm">
-              Type each line while it&apos;s sung, capitals and punctuation count. Enter locks a fully typed
-              line early.
+              Type each line while it&apos;s sung, capitals and punctuation
+              count. A typo blocks you until you fix it. Enter locks a fully
+              typed line early.
             </p>
           </div>
         )}
@@ -406,9 +407,10 @@ function LineText({
         <span
           key={i}
           className={cn(
-            "whitespace-pre",
+            "relative whitespace-pre",
             states[i] === "correct" && "text-emerald-400",
-            states[i] === "wrong" && "rounded-sm bg-red-500/20 text-red-400",
+            states[i] === "wrong" &&
+              "rounded-sm bg-red-500/30 text-red-300 ring-2 ring-red-500",
             states[i] === "pending" && "text-muted-foreground",
             showCaret && i === typed.length && "border-l-2 border-amber-400",
             word &&
@@ -418,6 +420,15 @@ function LineText({
           )}
         >
           {char}
+          {states[i] === "wrong" && (
+            // What was typed instead, so it's clear why the cursor is stuck.
+            <span
+              aria-hidden
+              className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-sm bg-red-500 px-1 text-xs leading-4 text-white"
+            >
+              {typed[i] === " " ? "␣" : typed[i]}
+            </span>
+          )}
         </span>
       ))}
     </p>
