@@ -31,6 +31,109 @@ import {
 
 type AudioStatus = "loading" | "ready" | "error";
 
+/** Media keys / OS controls that could pause or move the game clock. */
+const BLOCKED_MEDIA_ACTIONS: MediaSessionAction[] = [
+  "pause",
+  "stop",
+  "seekbackward",
+  "seekforward",
+  "seekto",
+  "previoustrack",
+  "nexttrack",
+];
+/** More intercepted pauses than this within the window: stop fighting, ask the player. */
+const MAX_AUTO_RESUMES = 3;
+const AUTO_RESUME_WINDOW_MS = 2000;
+
+function errorName(error: unknown) {
+  return error instanceof Error ? error.name : String(error);
+}
+
+/**
+ * The game can't be paused: while playing, any pause (earbuds removed, media
+ * keys, OS controls) is undone right away. If the browser refuses to play
+ * again, `needsResume` asks the player to press Resume.
+ */
+function useUnpausable(
+  audioRef: React.RefObject<HTMLAudioElement | null>,
+  playing: boolean,
+) {
+  const [needsResume, setNeedsResume] = useState(false);
+
+  const resume = useCallback(
+    async (reason: string) => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      try {
+        await audio.play();
+        setNeedsResume(false);
+        console.info("[game] playback resumed", { reason });
+      } catch (error) {
+        console.warn("[game] resuming playback failed", {
+          reason,
+          error: errorName(error),
+        });
+        setNeedsResume(true);
+      }
+    },
+    [audioRef],
+  );
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!playing || !audio) return;
+
+    let recentResumes: number[] = [];
+    const onPause = () => {
+      if (audio.ended) return;
+      const now = performance.now();
+      recentResumes = recentResumes.filter(
+        (t) => now - t < AUTO_RESUME_WINDOW_MS,
+      );
+      if (recentResumes.length >= MAX_AUTO_RESUMES) {
+        console.warn("[game] audio keeps pausing, asking the player to resume");
+        setNeedsResume(true);
+        return;
+      }
+      recentResumes.push(now);
+      console.info("[game] pause intercepted, resuming");
+      void resume("pause-event");
+    };
+    const onPlaying = () => setNeedsResume(false);
+    audio.addEventListener("pause", onPause);
+    audio.addEventListener("playing", onPlaying);
+
+    const session = "mediaSession" in navigator ? navigator.mediaSession : null;
+    for (const action of BLOCKED_MEDIA_ACTIONS) {
+      try {
+        session?.setActionHandler(action, () =>
+          console.debug("[game] media session action ignored", { action }),
+        );
+      } catch {
+        console.debug("[game] media session action unsupported", { action });
+      }
+    }
+
+    return () => {
+      audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("playing", onPlaying);
+      for (const action of BLOCKED_MEDIA_ACTIONS) {
+        try {
+          session?.setActionHandler(action, null);
+        } catch {
+          // Unsupported action, nothing was registered.
+        }
+      }
+    };
+  }, [audioRef, playing, resume]);
+
+  return {
+    needsResume: playing && needsResume,
+    resume: () => resume("resume-button"),
+    clearResume: () => setNeedsResume(false),
+  };
+}
+
 /**
  * Tracks whether the <audio> element can play. Reads the element itself, so
  * events fired before hydration aren't missed.
@@ -73,6 +176,8 @@ export function Game({
   const [starting, setStarting] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
   const [volume, setVolume] = useState(0.8);
+  const playing = state.status === "playing";
+  const { needsResume, resume, clearResume } = useUnpausable(audioRef, playing);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
@@ -101,13 +206,17 @@ export function Game({
     if (!audio || starting) return;
     setStarting(true);
     setPlayError(null);
+    clearResume();
     try {
       audio.currentTime = 0;
       await audio.play();
       dispatch({ type: "start" });
+      console.info("[game] started", { lines: lines.length });
       inputRef.current?.focus();
     } catch (error) {
-      console.error("Audio playback failed", error);
+      console.error("[game] starting playback failed", {
+        error: errorName(error),
+      });
       setPlayError(
         error instanceof DOMException && error.name === "NotAllowedError"
           ? "The browser blocked playback. Press start again."
@@ -141,7 +250,10 @@ export function Game({
         ref={audioRef}
         src={song.audioUrl}
         preload="auto"
-        onEnded={() => dispatch({ type: "end" })}
+        onEnded={() => {
+          console.info("[game] song ended");
+          dispatch({ type: "end" });
+        }}
       />
       <div className="flex flex-col gap-4">
         <StatsBar stats={stats} />
@@ -159,6 +271,10 @@ export function Game({
             onInput={(value) => dispatch({ type: "input", value })}
             onEnter={onEnter}
             onStart={start}
+            needsResume={needsResume}
+            onResume={() => {
+              void resume().then(() => inputRef.current?.focus());
+            }}
             startLabel={
               audioStatus === "error"
                 ? "Audio unavailable"
@@ -284,6 +400,8 @@ function TypingArea({
   onInput,
   onEnter,
   onStart,
+  needsResume,
+  onResume,
   startLabel,
   canStart,
   playerError,
@@ -293,6 +411,8 @@ function TypingArea({
   onInput: (value: string) => void;
   onEnter: () => void;
   onStart: () => void;
+  needsResume: boolean;
+  onResume: () => void;
   startLabel: string;
   canStart: boolean;
   playerError: string | null;
@@ -379,6 +499,16 @@ function TypingArea({
           )}
         />
 
+        {needsResume && (
+          <div className="bg-background/80 absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl backdrop-blur-sm">
+            <Button size="lg" onClick={onResume}>
+              Resume
+            </Button>
+            <p className="text-muted-foreground text-sm">
+              The browser paused the music. Press Resume to keep playing.
+            </p>
+          </div>
+        )}
         {!playing && (
           <div className="bg-background/80 absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl backdrop-blur-sm">
             <Button size="lg" onClick={onStart} disabled={!canStart}>
